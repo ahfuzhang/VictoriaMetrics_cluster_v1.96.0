@@ -15,7 +15,7 @@ const (
 
 // 从多个 part 目录打开数据文件
 // partDirs 一定要传入同一个月份分区的数据
-func Merge(partDirs []string, dstPartPath string) error {
+func Merge(partDirs []string, dstPartPath string, zstdCompressLevel int) error {
 	bsrs := make([]*blockStreamReader, 0, len(partDirs))
 	for _, p := range partDirs {
 		bsr := getBlockStreamReader()
@@ -23,7 +23,7 @@ func Merge(partDirs []string, dstPartPath string) error {
 		bsrs = append(bsrs, bsr)
 	}
 	bsw := getBlockStreamWriter()
-	bsw.MustInitFromFilePart(dstPartPath, true, BestZstdCompressLevel)
+	bsw.MustInitFromFilePart(dstPartPath, true, zstdCompressLevel)
 	//
 	stopCh := make(chan struct{})
 	ph, err := mergePartsInternalForFile(dstPartPath, bsw, bsrs, stopCh)

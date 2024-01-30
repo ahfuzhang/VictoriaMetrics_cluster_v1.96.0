@@ -54,6 +54,8 @@ var (
 	mergev3From = flag.String("mergev3_from", "", "Multiple storage paths separated by commas")
 	mergev3To   = flag.String("mergev3_to", "", "")
 	cpu         = flag.Int("cpu", 1, "cpu count")
+	//
+	zstdCompressLevel = flag.Int("zstd_compress_level", 4, "0~4")
 )
 
 func main() {
@@ -117,7 +119,7 @@ func main() {
 		mergedatav2.MergeDataV2(strings.Split(*mergeDataV2From, ","), *mergeDataV2To)
 	case "merge_v2":
 		storage.SetDedupInterval(*minScrapeInterval)
-		mergev2.Merge(strings.Split(*mergev2From, ","), *mergev2To)
+		mergev2.Merge(strings.Split(*mergev2From, ","), *mergev2To, *zstdCompressLevel)
 	case "merge_v3":
 		storage.SetDedupInterval(*minScrapeInterval)
 		mergev3.Merge(strings.Split(*mergev3From, ","), *mergev3To)

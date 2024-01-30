@@ -133,7 +133,7 @@ func (bsr *blockStreamReader) MustInitFromFilePart(path string) {
 	bsr.ph.MustReadMetadata(path)
 
 	timestampsPath := filepath.Join(path, timestampsFilename)
-	timestampsFile := filestream.MustOpen(timestampsPath, true)
+	timestampsFile := filestream.MustOpen(timestampsPath, true) // ??? 为什么不以共享内存的方式打开？
 
 	valuesPath := filepath.Join(path, valuesFilename)
 	valuesFile := filestream.MustOpen(valuesPath, true)
@@ -272,6 +272,8 @@ func (bsr *blockStreamReader) readBlock() error {
 	} else {
 		bsr.Block.timestampsData = bytesutil.ResizeNoCopyMayOverallocate(bsr.Block.timestampsData, int(bsr.Block.bh.TimestampsBlockSize))
 		fs.MustReadData(bsr.timestampsReader, bsr.Block.timestampsData)
+		//tempReader := bsr.timestampsReader.(*fs.ReaderAt)
+		//tempReader.ReadAtNocopy()
 		bsr.prevTimestampsBlockOffset = bsr.timestampsBlockOffset
 		bsr.prevTimestampsData = append(bsr.prevTimestampsData[:0], bsr.Block.timestampsData...)
 	}

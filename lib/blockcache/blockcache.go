@@ -30,7 +30,7 @@ type Cache struct {
 //
 // Cache size in bytes is limited by the value returned by getMaxSizeBytes() callback.
 // Call MustStop() in order to free up resources occupied by Cache.
-func NewCache(getMaxSizeBytes func() int) *Cache {
+func NewCache(getMaxSizeBytes func() int) *Cache {  // 块缓存
 	cpusCount := cgroup.AvailableCPUs()
 	shardsCount := cgroup.AvailableCPUs()
 	// Increase the number of shards with the increased number of available CPU cores.
@@ -49,7 +49,7 @@ func NewCache(getMaxSizeBytes func() int) *Cache {
 		shards[i] = newCache(getMaxShardBytes)
 	}
 	c := &Cache{
-		shards:            shards,
+		shards:            shards,  // 32 核  * 16 = 个分片
 		cleanerMustStopCh: make(chan struct{}),
 		cleanerStoppedCh:  make(chan struct{}),
 	}
@@ -229,10 +229,10 @@ type cacheEntry struct {
 	b Block
 }
 
-func newCache(getMaxSizeBytes func() int) *cache {
+func newCache(getMaxSizeBytes func() int) *cache {  // 每一个 cache 分片
 	var c cache
 	c.getMaxSizeBytes = getMaxSizeBytes
-	c.m = make(map[interface{}]map[uint64]*cacheEntry)
+	c.m = make(map[interface{}]map[uint64]*cacheEntry)  // 通过一个 map 来索引数据?
 	c.perKeyMisses = make(map[Key]int)
 	return &c
 }
@@ -284,7 +284,7 @@ func (c *cache) GetBlock(k Key) Block {
 
 	pes := c.m[k.Part]
 	if pes != nil {
-		e = pes[k.Offset]
+		e = pes[k.Offset]  // 以偏移量来寻址
 		if e != nil {
 			// Fast path - the block already exists in the cache, so return it to the caller.
 			currentTime := fasttime.UnixTimestamp()

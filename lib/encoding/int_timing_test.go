@@ -105,7 +105,9 @@ func benchmarkMarshalVarInt64s(b *testing.B, maxValue int64) {
 		var sink uint64
 		var dst []byte
 		for pb.Next() {
-			dst = MarshalVarInt64s(dst[:0], data)
+			//dst = MarshalVarInt64s(dst[:0], data)
+			//dst = MarshalVarInt64sV9(dst[:0], data)
+			dst = MarshalVarInt64sV11(dst[:0], data)
 			sink += uint64(len(dst))
 		}
 		atomic.AddUint64(&Sink, sink)
@@ -160,3 +162,52 @@ func benchmarkUnmarshalVarInt64s(b *testing.B, maxValue int64) {
 
 var testMarshaledInt64Data = MarshalInt64(nil, 1234567890)
 var testMarshaledUint64Data = MarshalUint64(nil, 1234567890)
+
+// 4455 ns/op
+// 6594 ns/op           41016 B/op          4 allocs/op
+// 4682 ns/op              56 B/op          3 allocs/op
+// go test -benchmem -run=^$ -bench ^Benchmark_MarshalVarInt64s_v11$ github.com/VictoriaMetrics/VictoriaMetrics/lib/encoding
+func Benchmark_MarshalVarInt64s_v11(b *testing.B) {
+	datas := []uint64{0, UintRange7Bit - 1, UintRange7Bit,
+		UintRange14Bit - 1, UintRange14Bit,
+		UintRange21Bit - 1, UintRange21Bit,
+		UintRange28Bit - 1, UintRange28Bit,
+		UintRange35Bit - 1, UintRange35Bit,
+		UintRange42Bit - 1, UintRange42Bit,
+		UintRange49Bit - 1, UintRange49Bit,
+		UintRange56Bit - 1, UintRange56Bit,
+		UintRange63Bit - 1, UintRange63Bit,
+		UintRange14Bit + 1, 0xFFFFFFFFFFFFFFFF,
+	}
+	arr := make([]int64, 0, len(datas)*100)
+	for i := 0; i < 100; i++ {
+		for _, v := range datas {
+			arr = append(arr, ZigzagDecode(v))
+		}
+	}
+	var buf [1024 * 32]byte
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = MarshalVarInt64sV12(buf[:0], arr)
+	}
+}
+
+/*
+38708 ns/op	       0 B/op	       0 allocs/op  linux, switch-case 版
+32930 ns/op	       0 B/op	       0 allocs/op   linux, fastcgo 版本
+
+env CC=clang CGO_ENABLED=1  GOOS=linux  GOARCH=amd64 CGO_CFLAGS="-O2" CGO_LDFLAGS="-static" \
+go test -ldflags="-w -s" -gcflags="-B" -benchmem -run=^$ -bench ^Benchmark_MarshalVarInt64s_v11$ github.com/VictoriaMetrics/VictoriaMetrics/lib/encoding
+
+36505 ns/op	       0 B/op	       0 allocs/op  加了优化参数反而慢了
+
+=========================
+arm64
+4629 ns/op              56 B/op          3 allocs/op  cgo 版本
+4491 ns/op               0 B/op          0 allocs/op  switch-case 版本
+
+env CC=clang CGO_ENABLED=1 CGO_CFLAGS="-O2"  \
+go test -ldflags="-w -s" -gcflags="-B" -benchmem -run=^$ -bench ^Benchmark_MarshalVarInt64s_v11$ github.com/VictoriaMetrics/VictoriaMetrics/lib/encoding
+
+4682 ns/op              56 B/op          3 allocs/op  cgo，加了 -O2 的版本
+*/

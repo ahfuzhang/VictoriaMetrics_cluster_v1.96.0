@@ -110,7 +110,7 @@ func (ts *TableSearch) Seek(k []byte) {
 		ts.err = io.EOF
 		return
 	}
-	heap.Init(&ts.psHeap)
+	heap.Init(&ts.psHeap)  // ??? 关于堆，还没有彻底理解
 	ts.Item = ts.psHeap[0].Item
 	//logger.Infof("ts.psHeap len=%d", len(ts.psHeap))
 	ts.nextItemNoop = true // 初始化的时候，游标里面已经装载了一条数据

@@ -3,9 +3,12 @@ package mergeset
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
+	"time"
 	"unsafe"
 
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/blockcache"
@@ -18,7 +21,7 @@ import (
 )
 
 var idxbCache = blockcache.NewCache(getMaxIndexBlocksCacheSize)
-var ibCache = blockcache.NewCache(getMaxInmemoryBlocksCacheSize)
+var ibCache = blockcache.NewCache(getMaxInmemoryBlocksCacheSize) // ??? 还没搞懂这个 cache 如何运作的
 
 // SetIndexBlocksCacheSize overrides the default size of indexdb/indexBlock cache
 func SetIndexBlocksCacheSize(size int) {
@@ -72,16 +75,38 @@ type part struct {
 	lensFile  fs.MustReadAtCloser
 }
 
+// PartReader 用于读一个 part
 type PartReader struct {
-	PartHeader    partHeader
 	Path          string
-	TableType     int8 // prev 还是 curr
-	MetaIndexRows []metaindexRow
-	BlockHeaders  [][]blockHeader
-	ItemsFile     *fs.ReaderAt
-	LensFile      *fs.ReaderAt
+	TableType     int8            // prev 还是 curr
+	PartHeader    partHeader      // metadata.json
+	MetaIndexRows []metaindexRow  // metaindex.bin
+	BlockHeaders  [][]blockHeader // index.bin
+	ItemsFile     *fs.ReaderAt    // items.bin
+	LensFile      *fs.ReaderAt    // lens.bin
+	Cache         sync.Map
 	//
 	sb storageBlock
+}
+
+type CacheItem struct {
+	Ref     uint64
+	IB      *inmemoryBlock
+	LastUse int64
+}
+
+func (c *CacheItem) AddRef() {
+	atomic.AddUint64(&c.Ref, 1)
+	c.LastUse = time.Now().Unix()
+}
+
+func (c *CacheItem) DeRef() {
+	if atomic.AddUint64(&c.Ref, ^uint64(0)) == 0 {
+		c.IB.Reset()
+		c.IB = nil
+		c.LastUse = 0
+		// todo: 从 map 中删除
+	}
 }
 
 func NewPartReader(path string, tableType int8) (*PartReader, error) {
@@ -94,7 +119,7 @@ func NewPartReader(path string, tableType int8) (*PartReader, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open metaindex.bin error, err=%w", err)
 	}
-	mrs, err := unmarshalMetaindexRows(nil, bytes.NewReader(metaindexBin))
+	mrs, err := unmarshalMetaindexRows(nil, bytes.NewReader(metaindexBin)) // mrs 一定是有序的
 	if err != nil {
 		logger.Panicf("FATAL: cannot unmarshal metaindexRows from %q: %s", path, err)
 	}
@@ -114,7 +139,7 @@ func NewPartReader(path string, tableType int8) (*PartReader, error) {
 			return nil, fmt.Errorf("DecompressZSTD index.bin error, err=%w", err)
 		}
 		var bhs []blockHeader
-		bhs, err = unmarshalBlockHeadersNoCopy(nil, zstdBuf, int(mr.blockHeadersCount))
+		bhs, err = unmarshalBlockHeadersNoCopy(nil, zstdBuf, int(mr.blockHeadersCount)) // bhs 一定是有序的
 		if err != nil {
 			return nil, fmt.Errorf("unmarshalBlockHeadersNoCopy for index.bin error, err=%w", err)
 		}
@@ -129,6 +154,36 @@ func NewPartReader(path string, tableType int8) (*PartReader, error) {
 func (p *PartReader) Close() {
 	p.ItemsFile.MustClose()
 	p.LensFile.MustClose()
+}
+
+func (p *PartReader) GetInmemoryBlock(rowIndex, blockIndex int) *CacheItem {
+	if rowIndex < 0 || rowIndex >= len(p.MetaIndexRows) {
+		panic("row index out of range")
+	}
+	//mr := p.MetaIndexRows[rowIndex]
+	bhs := p.BlockHeaders[rowIndex]
+	if blockIndex < 0 || blockIndex >= len(bhs) {
+		panic("block index out of range")
+	}
+	bh := &bhs[blockIndex]
+	//
+	cacheIndex := uint64(((rowIndex & 0xFFFFFFFF) << 32) | (blockIndex & 0xFFFFFFFF))
+	ret, has := p.Cache.Load(cacheIndex)
+	if has {
+		return ret.(*CacheItem)
+	}
+	// todo: 考虑剩余内存
+	ib, err := p.readInmemoryBlock(bh)
+	if err != nil {
+		panic("readInmemoryBlock error, err=" + err.Error())
+	}
+	c := &CacheItem{
+		Ref:     1,
+		IB:      ib,
+		LastUse: time.Now().Unix(),
+	}
+	p.Cache.Store(cacheIndex, c)
+	return c
 }
 
 func (p *PartReader) readInmemoryBlock(bh *blockHeader) (*inmemoryBlock, error) { // 从磁盘读取一个块  // todo: ib 应该要放在 cache 里面
@@ -217,4 +272,62 @@ func (idxb *indexBlock) SizeBytes() int {
 		n += bhs[i].SizeBytes()
 	}
 	return n
+}
+
+type PartCursor struct {
+	Part       *PartReader
+	RowIndex   int
+	BlockIndex int
+	ItemIndex  int
+	ib         *CacheItem
+	err        error
+	Current    []byte
+}
+
+func NewPartCursor(p *PartReader) *PartCursor {
+	inst := &PartCursor{
+		Part:       p,
+		RowIndex:   0,
+		BlockIndex: 0,
+		ItemIndex:  0,
+	}
+	inst.ib = p.GetInmemoryBlock(0, 0)
+	return inst
+}
+
+func (pc *PartCursor) Next() bool {
+	if pc.err != nil {
+		return false
+	}
+	ib := pc.ib.IB
+	if pc.ItemIndex >= 0 && pc.ItemIndex < len(ib.items) {
+		pc.Current = ib.items[pc.ItemIndex].Bytes(ib.data)
+		pc.ItemIndex++
+		return true
+	}
+	return pc.nextBlock()
+}
+
+func (pc *PartCursor) nextBlock() bool {
+	pc.Current = nil
+	pc.ItemIndex = -1
+	pc.ib = nil
+	bhs := pc.Part.BlockHeaders[pc.RowIndex]
+	if pc.BlockIndex < len(bhs)-1 {
+		pc.BlockIndex++
+		pc.ib = pc.Part.GetInmemoryBlock(pc.RowIndex, pc.BlockIndex)
+		pc.ItemIndex = 0
+		pc.Current = nil
+		return true
+	}
+	return pc.nextMetaIndexRow()
+}
+
+func (pc *PartCursor) nextMetaIndexRow() bool {
+	if pc.RowIndex < len(pc.Part.MetaIndexRows)-1 {
+		pc.RowIndex++
+		return pc.nextBlock()
+	}
+	pc.err = io.EOF
+	return false
 }

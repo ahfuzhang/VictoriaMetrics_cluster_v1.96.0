@@ -17,7 +17,7 @@ import (
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/storage"
 )
 
-func Merge(fromPaths []string, toPath string) {
+func Merge(fromPaths []string, toPath string, zstdCompressLevel int) {
 	if len(fromPaths) < 1 {
 		logger.Errorf("from path count must great 0")
 		os.Exit(1)
@@ -40,7 +40,7 @@ func Merge(fromPaths []string, toPath string) {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			mergeData(fromPaths, toPath, &ts)
+			mergeData(fromPaths, toPath, &ts, zstdCompressLevel)
 		}()
 		go func() {
 			defer wg.Done()
@@ -49,7 +49,7 @@ func Merge(fromPaths []string, toPath string) {
 		wg.Wait()
 	} else {
 		mergeIndex(fromPaths, toPath, &ts)
-		mergeData(fromPaths, toPath, &ts)
+		mergeData(fromPaths, toPath, &ts, zstdCompressLevel)
 	}
 }
 
@@ -73,7 +73,7 @@ func Merge(fromPaths []string, toPath string) {
 // 	fmt.Printf("OK\n")
 // }
 
-func mergeData(fromPaths []string, toPath string, ts *uint64) {
+func mergeData(fromPaths []string, toPath string, ts *uint64, zstdCompressLevel int) {
 	dstPartitionDir := filepath.Join(toPath, storage.DataDirname, "big")
 	fs.MustMkdirIfNotExist(dstPartitionDir)
 	fs.MustMkdirIfNotExist(filepath.Join(toPath, storage.DataDirname, "small"))
@@ -111,7 +111,7 @@ func mergeData(fromPaths []string, toPath string, ts *uint64) {
 				partDirs = append(partDirs, partDir) // 以月份归类的源数据目录
 			}
 		}
-		if err := storage.Merge(partDirs, dstPartDir); err != nil {
+		if err := storage.Merge(partDirs, dstPartDir, zstdCompressLevel); err != nil {
 			logger.Panicf("merge error, err=%w", err)
 		}
 	}

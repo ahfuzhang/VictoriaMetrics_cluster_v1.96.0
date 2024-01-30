@@ -448,6 +448,9 @@ github.com/mwitkow/go-conntrack
 # github.com/oklog/ulid v1.3.1
 ## explicit
 github.com/oklog/ulid
+# github.com/petermattis/fastcgo v0.0.0-20170816164731-e33892440abb
+## explicit
+github.com/petermattis/fastcgo
 # github.com/pkg/browser v0.0.0-20210911075715-681adbf594b8
 ## explicit; go 1.14
 github.com/pkg/browser

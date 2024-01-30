@@ -3,6 +3,7 @@ package encoding
 import (
 	"encoding/binary"
 	"fmt"
+	"math/bits"
 	"sync"
 )
 
@@ -79,9 +80,9 @@ func MarshalVarInt64(dst []byte, v int64) []byte {
 }
 
 // MarshalVarInt64s appends marshaled vs to dst and returns the result.
-func MarshalVarInt64s(dst []byte, vs []int64) []byte { // 这个函数很慢
+func MarshalVarInt64sV0(dst []byte, vs []int64) []byte { // 这个函数很慢
 	for _, v := range vs {
-		if v < 0x40 && v > -0x40 {
+		if v < 0x40 && v > -0x40 { // -65 < v <64 // 仅需要编码成一个字节的情况
 			// Fast path
 			c := int8(v)
 			v := (c << 1) ^ (c >> 7) // zig-zag encoding without branching.
@@ -193,7 +194,7 @@ func UnmarshalVarInt64s(dst []int64, src []byte) ([]byte, error) { // 这一个�
 		u := uint64(c & 0x7f)
 		startIdx := idx - 1
 		shift := uint8(0)
-		for c >= 0x80 {
+		for c >= 0x80 {  //  !!! 无法预知数据有多长，无法加速
 			if idx >= uint(len(src)) {
 				return nil, fmt.Errorf("unexpected end of encoded varint at byte %d; src=%x", idx-startIdx, src[startIdx:])
 			}
@@ -402,3 +403,200 @@ type Uint32s struct {
 }
 
 var uint32sPool sync.Pool
+
+// ZigzagEncode 对 int64 进行 Zigzag 编码
+func ZigzagEncode(n int64) uint64 {
+	return uint64((n << 1) ^ (n >> 63))
+}
+
+// ZigzagDecode 对 uint64 进行 Zigzag 解码
+func ZigzagDecode(n uint64) int64 {
+	return int64((n >> 1) ^ (-(n & 1)))
+}
+
+const (
+	UintRange7Bit  = uint64(1 << 7)
+	UintRange14Bit = uint64(1 << 14)
+	UintRange21Bit = uint64(1 << 21)
+	UintRange28Bit = uint64(1 << 28)
+	UintRange35Bit = uint64(1 << 35)
+	UintRange42Bit = uint64(1 << 42)
+	UintRange49Bit = uint64(1 << 49)
+	UintRange56Bit = uint64(1 << 56)
+	UintRange63Bit = uint64(1 << 63)
+)
+
+func MarshalVarInt64V9(dst []byte, v int64) []byte {
+	n := uint64((v << 1) ^ (v >> 63))
+	if n < UintRange7Bit {
+		dst = append(dst, byte(n))
+		return dst
+	}
+	if n < UintRange14Bit {
+		dst = append(dst, byte(n|0x80), byte(n>>7))
+		return dst
+	}
+	if n < UintRange21Bit {
+		dst = append(dst, byte(n|0x80), byte((n>>7)|0x80), byte(n>>14))
+		return dst
+	}
+	if n < UintRange28Bit {
+		dst = append(dst, byte(n|0x80), byte((n>>7)|0x80), byte((n>>14)|0x80), byte(n>>21))
+		return dst
+	}
+	if n < UintRange28Bit {
+		dst = append(dst, byte(n|0x80), byte((n>>7)|0x80), byte((n>>14)|0x80), byte(n>>21))
+		return dst
+	}
+	if n < UintRange35Bit {
+		dst = append(dst, byte(n|0x80), byte((n>>7)|0x80), byte((n>>14)|0x80), byte((n>>21)|0x80), byte(n>>28))
+		return dst
+	}
+	if n < UintRange42Bit {
+		dst = append(dst, byte(n|0x80), byte((n>>7)|0x80), byte((n>>14)|0x80), byte((n>>21)|0x80), byte(n>>28|0x80), byte(n>>35))
+		return dst
+	}
+	if n < UintRange49Bit {
+		dst = append(dst, byte(n|0x80), byte((n>>7)|0x80), byte((n>>14)|0x80), byte((n>>21)|0x80), byte(n>>28|0x80), byte(n>>35|0x80), byte(n>>42))
+		return dst
+	}
+	if n < UintRange56Bit {
+		dst = append(dst, byte(n|0x80), byte((n>>7)|0x80), byte((n>>14)|0x80), byte((n>>21)|0x80), byte(n>>28|0x80), byte(n>>35|0x80), byte(n>>42|0x80), byte(n>>49))
+		return dst
+	}
+	if n < UintRange63Bit {
+		dst = append(dst, byte(n|0x80), byte((n>>7)|0x80), byte((n>>14)|0x80), byte((n>>21)|0x80), byte(n>>28|0x80), byte(n>>35|0x80), byte(n>>42|0x80), byte(n>>49|0x80), byte(n>>56))
+		return dst
+	}
+	dst = append(dst, byte(n|0x80), byte((n>>7)|0x80), byte((n>>14)|0x80), byte((n>>21)|0x80), byte(n>>28|0x80), byte(n>>35|0x80), byte(n>>42|0x80), byte(n>>49|0x80), byte(n>>56|0x80), byte(n>>63))
+	return dst
+}
+
+func MarshalVarInt64sV9(dst []byte, vs []int64) []byte {
+	for _, v := range vs {
+		n := uint64((v << 1) ^ (v >> 63))
+		if n < UintRange7Bit {
+			dst = append(dst, byte(n))
+			continue
+		}
+		if n < UintRange14Bit {
+			dst = append(dst, byte(n|0x80), byte(n>>7))
+			continue
+		}
+		if n < UintRange21Bit {
+			dst = append(dst, byte(n|0x80), byte((n>>7)|0x80), byte(n>>14))
+			continue
+		}
+		if n < UintRange28Bit {
+			dst = append(dst, byte(n|0x80), byte((n>>7)|0x80), byte((n>>14)|0x80), byte(n>>21))
+			continue
+		}
+		if n < UintRange35Bit {
+			dst = append(dst, byte(n|0x80), byte((n>>7)|0x80), byte((n>>14)|0x80), byte((n>>21)|0x80), byte(n>>28))
+			continue
+		}
+		if n < UintRange42Bit {
+			dst = append(dst, byte(n|0x80), byte((n>>7)|0x80), byte((n>>14)|0x80), byte((n>>21)|0x80), byte(n>>28|0x80), byte(n>>35))
+			continue
+		}
+		if n < UintRange49Bit {
+			dst = append(dst, byte(n|0x80), byte((n>>7)|0x80), byte((n>>14)|0x80), byte((n>>21)|0x80), byte(n>>28|0x80), byte(n>>35|0x80), byte(n>>42))
+			continue
+		}
+		if n < UintRange56Bit {
+			dst = append(dst, byte(n|0x80), byte((n>>7)|0x80), byte((n>>14)|0x80), byte((n>>21)|0x80), byte(n>>28|0x80), byte(n>>35|0x80), byte(n>>42|0x80), byte(n>>49))
+			continue
+		}
+		if n < UintRange63Bit {
+			dst = append(dst, byte(n|0x80), byte((n>>7)|0x80), byte((n>>14)|0x80), byte((n>>21)|0x80), byte(n>>28|0x80), byte(n>>35|0x80), byte(n>>42|0x80), byte(n>>49|0x80), byte(n>>56))
+			continue
+		}
+		dst = append(dst, byte(n|0x80), byte((n>>7)|0x80), byte((n>>14)|0x80), byte((n>>21)|0x80), byte(n>>28|0x80), byte(n>>35|0x80), byte(n>>42|0x80), byte(n>>49|0x80), byte(n>>56|0x80), byte(n>>63))
+		//return dst
+	}
+	return dst
+}
+
+func MarshalVarInt64s(dst []byte, vs []int64) []byte {
+	for _, v := range vs {
+		n := uint64((v << 1) ^ (v >> 63))
+		switch (64 - bits.LeadingZeros64(n>>1)) / 7 {
+		case 0:
+			dst = append(dst, byte(n))
+		case 1:
+			dst = append(dst, byte(n|0x80), byte(n>>7))
+		case 2:
+			dst = append(dst, byte(n|0x80), byte((n>>7)|0x80), byte(n>>14))
+		case 3:
+			dst = append(dst, byte(n|0x80), byte((n>>7)|0x80), byte((n>>14)|0x80), byte(n>>21))
+		case 4:
+			dst = append(dst, byte(n|0x80), byte((n>>7)|0x80), byte((n>>14)|0x80), byte((n>>21)|0x80), byte(n>>28))
+		case 5:
+			dst = append(dst, byte(n|0x80), byte((n>>7)|0x80), byte((n>>14)|0x80), byte((n>>21)|0x80), byte(n>>28|0x80), byte(n>>35))
+		case 6:
+			dst = append(dst, byte(n|0x80), byte((n>>7)|0x80), byte((n>>14)|0x80), byte((n>>21)|0x80), byte(n>>28|0x80), byte(n>>35|0x80), byte(n>>42))
+		case 7:
+			dst = append(dst, byte(n|0x80), byte((n>>7)|0x80), byte((n>>14)|0x80), byte((n>>21)|0x80), byte(n>>28|0x80), byte(n>>35|0x80), byte(n>>42|0x80), byte(n>>49))
+		case 8:
+			dst = append(dst, byte(n|0x80), byte((n>>7)|0x80), byte((n>>14)|0x80), byte((n>>21)|0x80), byte(n>>28|0x80), byte(n>>35|0x80), byte(n>>42|0x80), byte(n>>49|0x80), byte(n>>56))
+		case 9:
+			fallthrough
+		default:
+			dst = append(dst, byte(n|0x80), byte((n>>7)|0x80), byte((n>>14)|0x80), byte((n>>21)|0x80), byte(n>>28|0x80), byte(n>>35|0x80), byte(n>>42|0x80), byte(n>>49|0x80), byte(n>>56|0x80), byte(n>>63))
+		}
+	}
+	return dst
+}
+
+func MarshalVarInt64V10(dst []byte, v int64) []byte {
+	var arr [1]int64
+	arr[0] = v
+	return MarshalVarInt64s(dst, arr[:1])
+}
+
+var jumpTable = [10]func(dst []byte, v uint64) []byte{
+	func(dst []byte, n uint64) []byte { //0
+		return append(dst, byte(n))
+	},
+	func(dst []byte, n uint64) []byte { // 1
+		return append(dst, byte(n|0x80), byte(n>>7))
+	},
+	func(dst []byte, n uint64) []byte { //2
+		return append(dst, byte(n|0x80), byte((n>>7)|0x80), byte(n>>14))
+	},
+	func(dst []byte, n uint64) []byte { // 3
+		return append(dst, byte(n|0x80), byte((n>>7)|0x80), byte((n>>14)|0x80), byte(n>>21))
+	},
+	func(dst []byte, n uint64) []byte { // 4
+		return append(dst, byte(n|0x80), byte((n>>7)|0x80), byte((n>>14)|0x80), byte((n>>21)|0x80), byte(n>>28))
+	},
+	func(dst []byte, n uint64) []byte { // 5
+		return append(dst, byte(n|0x80), byte((n>>7)|0x80), byte((n>>14)|0x80), byte((n>>21)|0x80), byte(n>>28|0x80), byte(n>>35))
+	},
+	func(dst []byte, n uint64) []byte { // 6
+		return append(dst, byte(n|0x80), byte((n>>7)|0x80), byte((n>>14)|0x80), byte((n>>21)|0x80), byte(n>>28|0x80), byte(n>>35|0x80), byte(n>>42))
+	},
+	func(dst []byte, n uint64) []byte { // 7
+		return append(dst, byte(n|0x80), byte((n>>7)|0x80), byte((n>>14)|0x80), byte((n>>21)|0x80), byte(n>>28|0x80), byte(n>>35|0x80), byte(n>>42|0x80), byte(n>>49))
+	},
+	func(dst []byte, n uint64) []byte { // 8
+		return append(dst, byte(n|0x80), byte((n>>7)|0x80), byte((n>>14)|0x80), byte((n>>21)|0x80), byte(n>>28|0x80), byte(n>>35|0x80), byte(n>>42|0x80), byte(n>>49|0x80), byte(n>>56))
+	},
+	func(dst []byte, n uint64) []byte { // 9
+		return append(dst, byte(n|0x80), byte((n>>7)|0x80), byte((n>>14)|0x80), byte((n>>21)|0x80), byte(n>>28|0x80), byte(n>>35|0x80), byte(n>>42|0x80), byte(n>>49|0x80), byte(n>>56|0x80), byte(n>>63))
+	},
+}
+
+func MarshalVarInt64sV11(dst []byte, vs []int64) []byte {
+	for _, v := range vs {
+		n := uint64((v << 1) ^ (v >> 63))
+		dst = jumpTable[(64-bits.LeadingZeros64(n>>1))/7](dst, n)
+	}
+	return dst
+}
+
+func MarshalVarInt64V11(dst []byte, v int64) []byte {
+	var arr [1]int64
+	arr[0] = v
+	return MarshalVarInt64sV11(dst, arr[:1])
+}

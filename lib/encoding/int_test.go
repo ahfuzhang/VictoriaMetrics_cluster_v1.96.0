@@ -3,6 +3,7 @@ package encoding
 import (
 	"bytes"
 	"fmt"
+	"math/bits"
 	"testing"
 )
 
@@ -212,7 +213,8 @@ func TestMarshalUnmarshalVarInt64(t *testing.T) {
 func testMarshalUnmarshalVarInt64(t *testing.T, v int64) {
 	t.Helper()
 
-	b := MarshalVarInt64(nil, v)
+	//b := MarshalVarInt64(nil, v)
+	b := MarshalVarInt64V11(nil, v)
 	tail, vNew, err := UnmarshalVarInt64(b)
 	if err != nil {
 		t.Fatalf("unexpected error when unmarshaling v=%d from b=%x: %s", v, b, err)
@@ -225,7 +227,8 @@ func testMarshalUnmarshalVarInt64(t *testing.T, v int64) {
 	}
 
 	prefix := []byte{1, 2, 3}
-	b1 := MarshalVarInt64(prefix, v)
+	//b1 := MarshalVarInt64(prefix, v)
+	b1 := MarshalVarInt64V11(prefix, v)
 	if string(b1[:len(prefix)]) != string(prefix) {
 		t.Fatalf("unexpected prefix for v=%d; got\n%x; expecting\n%x", v, b1[:len(prefix)], prefix)
 	}
@@ -349,4 +352,60 @@ func Test_MarshalVarInt64s_2(t *testing.T) {
 			t.Logf("MarshalVarInt64s len=%d, value=%d(%d), result=%X", prevLen, i, cnt, result)
 		}
 	}
+}
+
+/*
+	v = (v << 1) ^ (v >> 63) // zig-zag encoding without branching.
+	u := uint64(v)
+	for u > 0x7f {
+		dst = append(dst, 0x80|byte(u))
+		u >>= 7
+	}
+	dst = append(dst, byte(u))
+*/
+
+func Test_ZigZag1(t *testing.T) {
+	var dst [128]byte
+	var temp [128]byte
+	var temp2 [128]byte
+	var values [1]int64
+	datas := []uint64{0, UintRange7Bit - 1, UintRange7Bit,
+		UintRange14Bit - 1, UintRange14Bit,
+		UintRange21Bit - 1, UintRange21Bit,
+		UintRange28Bit - 1, UintRange28Bit,
+		UintRange35Bit - 1, UintRange35Bit,
+		UintRange42Bit - 1, UintRange42Bit,
+		UintRange49Bit - 1, UintRange49Bit,
+		UintRange56Bit - 1, UintRange56Bit,
+		UintRange63Bit - 1, UintRange63Bit,
+		UintRange14Bit + 1, 0xFFFFFFFFFFFFFFFF,
+	}
+	for _, v := range datas {
+		n := ZigzagDecode(v)
+		values[0] = n
+		dst1 := MarshalVarInt64s(dst[:0], values[:1])
+		dst2 := MarshalVarInt64V9(temp[:0], n)
+		if !bytes.Equal(dst1, dst2) {
+			t.Errorf("error, value=%d, right=%X, wrong=%X", n, dst1, dst2)
+			return
+		}
+		dst3 := MarshalVarInt64sV12(temp2[:0], values[:1])
+		if !bytes.Equal(dst1, dst3) {
+			t.Errorf("error, value=%d, right=%X, wrong=%X", n, dst1, dst3)
+			return
+		}
+	}
+}
+
+func Test_leadingZero(t *testing.T) {
+	t.Logf("%d", bits.LeadingZeros64(0xFFFFFFFFFFFFFFFF))
+	t.Logf("%d", bits.LeadingZeros64(0xFFFFFFFFFFFFFFFF-1))
+	t.Logf("%d", bits.LeadingZeros64(0xEFFFFFFFFFFFFFFF))
+	t.Logf("%d", bits.LeadingZeros64(0xDFFFFFFFFFFFFFFF))
+	t.Logf("%d", bits.LeadingZeros64(0xCFFFFFFFFFFFFFFF))
+	t.Logf("%d", bits.LeadingZeros64(0xCFFFFFFFFFFFFFFF)) // 0
+	t.Logf("%d", bits.LeadingZeros64(0x7FFFFFFFFFFFFFFF)) // 1
+	t.Logf("%d", bits.LeadingZeros64(0x3FFFFFFFFFFFFFFF)) // 2
+	t.Logf("%d", bits.LeadingZeros64(0x1FFFFFFFFFFFFFFF)) // 3
+	t.Logf("%d", bits.LeadingZeros64(0x0FFFFFFFFFFFFFFF)) // 4
 }

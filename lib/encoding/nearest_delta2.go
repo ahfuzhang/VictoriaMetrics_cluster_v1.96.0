@@ -11,7 +11,7 @@ import (
 //
 // precisionBits must be in the range [1...64], where 1 means 50% precision,
 // while 64 means 100% precision, i.e. lossless encoding.
-func marshalInt64NearestDelta2(dst []byte, src []int64, precisionBits uint8) (result []byte, firstValue int64) {
+func marshalInt64NearestDelta2(dst []byte, src []int64, precisionBits uint8) (result []byte, firstValue int64) {  // 序列化 values, timestamp 的时候调用，至少消耗 4%
 	if len(src) < 2 {
 		logger.Panicf("BUG: src must contain at least 2 items; got %d items", len(src))
 	}
@@ -24,15 +24,25 @@ func marshalInt64NearestDelta2(dst []byte, src []int64, precisionBits uint8) (re
 	dst = MarshalVarInt64(dst, d1)
 	v := src[1]
 	src = src[2:]
-	is := GetInt64s(len(src))
+	is := GetInt64s(len(src))  // pool 中获得一个目的数组
 	if precisionBits == 64 {
 		// Fast path.
-		for i, next := range src {
+		for i, next := range src {  // 通常执行到这里
 			d2 := next - v - d1
 			d1 += d2
 			v += d1
-			is.A[i] = d2
+			is.A[i] = d2  // todo: 这种位置很适合 simd
 		}
+		// tailLoc := len(src) - len(src)&7
+		// topHalf := src[:tailLoc]
+		// for i:=0; i<len(topHalf); i+=8{
+		// 	next := topHalf[i]
+		// 	d2 := next - v - d1
+		// 	d1 += d2
+		// 	v += d1
+		// 	is.A[i] = d2
+		// }
+		// bottomHalf := src[tailLoc:]
 	} else {
 		// Slower path.
 		trailingZeros := getTrailingZeros(v, precisionBits)
