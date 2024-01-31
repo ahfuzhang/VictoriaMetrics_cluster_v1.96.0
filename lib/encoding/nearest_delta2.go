@@ -72,7 +72,7 @@ func unmarshalInt64NearestDelta2(dst []int64, src []byte, firstValue int64, item
 	is := GetInt64s(itemsCount - 1)
 	defer PutInt64s(is)
 
-	tail, err := UnmarshalVarInt64s(is.A, src)
+	tail, err := UnmarshalVarInt64s(is.A, src)  // 解码整个数组
 	if err != nil {
 		return nil, fmt.Errorf("cannot unmarshal nearest delta from %d bytes; src=%X: %w", len(src), src, err)
 	}

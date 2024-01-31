@@ -214,8 +214,8 @@ func testMarshalUnmarshalVarInt64(t *testing.T, v int64) {
 	t.Helper()
 
 	//b := MarshalVarInt64(nil, v)
-	b := MarshalVarInt64V11(nil, v)
-	tail, vNew, err := UnmarshalVarInt64(b)
+	b := MarshalVarInt64(nil, v)
+	tail, vNew, err := UnmarshalVarInt64V1(b)
 	if err != nil {
 		t.Fatalf("unexpected error when unmarshaling v=%d from b=%x: %s", v, b, err)
 	}
@@ -228,7 +228,7 @@ func testMarshalUnmarshalVarInt64(t *testing.T, v int64) {
 
 	prefix := []byte{1, 2, 3}
 	//b1 := MarshalVarInt64(prefix, v)
-	b1 := MarshalVarInt64V11(prefix, v)
+	b1 := MarshalVarInt64(prefix, v)
 	if string(b1[:len(prefix)]) != string(prefix) {
 		t.Fatalf("unexpected prefix for v=%d; got\n%x; expecting\n%x", v, b1[:len(prefix)], prefix)
 	}
@@ -408,4 +408,68 @@ func Test_leadingZero(t *testing.T) {
 	t.Logf("%d", bits.LeadingZeros64(0x3FFFFFFFFFFFFFFF)) // 2
 	t.Logf("%d", bits.LeadingZeros64(0x1FFFFFFFFFFFFFFF)) // 3
 	t.Logf("%d", bits.LeadingZeros64(0x0FFFFFFFFFFFFFFF)) // 4
+}
+
+func TestUnmarshalVarInt64ForOne(t *testing.T) {
+	type args struct {
+		buf []byte
+	}
+	tests := []struct {
+		name string
+		args args
+		want int64
+	}{
+		{
+			name: "test1",
+			args: args{
+				buf: []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01},
+			},
+			want: -9223372036854775808,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := UnmarshalVarInt64ForOne(tt.args.buf); got != tt.want {
+				t.Errorf("UnmarshalVarInt64ForOne() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestUnmarshalVarInt64sV1(t *testing.T) {
+	type args struct {
+		dst []int64
+		src []byte
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    int64
+		wantErr bool
+	}{
+		{
+			name: "test1",
+			args: args{
+				dst: make([]int64, 1),
+				src: []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01},
+			},
+			want:    -9223372036854775808,
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := UnmarshalVarInt64sV1(tt.args.dst, tt.args.src)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("UnmarshalVarInt64sV1() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.args.dst[0] != tt.want {
+				t.Errorf("UnmarshalVarInt64sV1() = %v, want %v", tt.args.dst[0], tt.want)
+			}
+			// if !reflect.DeepEqual(got, tt.want) {
+			// 	t.Errorf("UnmarshalVarInt64sV1() = %v, want %v", got, tt.want)
+			// }
+		})
+	}
 }

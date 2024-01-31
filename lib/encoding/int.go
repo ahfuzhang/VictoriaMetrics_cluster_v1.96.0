@@ -194,7 +194,7 @@ func UnmarshalVarInt64s(dst []int64, src []byte) ([]byte, error) { // 这一个�
 		u := uint64(c & 0x7f)
 		startIdx := idx - 1
 		shift := uint8(0)
-		for c >= 0x80 {  //  !!! 无法预知数据有多长，无法加速
+		for c >= 0x80 { //  !!! 无法预知数据有多长，无法加速
 			if idx >= uint(len(src)) {
 				return nil, fmt.Errorf("unexpected end of encoded varint at byte %d; src=%x", idx-startIdx, src[startIdx:])
 			}
@@ -211,6 +211,108 @@ func UnmarshalVarInt64s(dst []int64, src []byte) ([]byte, error) { // 这一个�
 		dst[i] = v
 	}
 	return src[idx:], nil
+}
+
+func UnmarshalVarInt64ForOne(buf []byte) int64 {
+	var n uint64
+	switch len(buf) {
+	case 1:
+		n = uint64(buf[0] & 0x7F)
+	case 2:
+		n = uint64(buf[0]&0x7F) | (uint64(buf[1]&0x7F) << 7)
+	case 3:
+		n = uint64(buf[0]&0x7F) | (uint64(buf[1]&0x7F) << 7) | (uint64(buf[2]&0x7F) << 14)
+	case 4:
+		n = uint64(buf[0]&0x7F) | (uint64(buf[1]&0x7F) << 7) | (uint64(buf[2]&0x7F) << 14) | (uint64(buf[3]&0x7F) << 21)
+	case 5:
+		n = uint64(buf[0]&0x7F) | (uint64(buf[1]&0x7F) << 7) | (uint64(buf[2]&0x7F) << 14) | (uint64(buf[3]&0x7F) << 21) | (uint64(buf[4]&0x7F) << 28)
+	case 6:
+		n = uint64(buf[0]&0x7F) | (uint64(buf[1]&0x7F) << 7) | (uint64(buf[2]&0x7F) << 14) | (uint64(buf[3]&0x7F) << 21) | (uint64(buf[4]&0x7F) << 28) | (uint64(buf[5]&0x7F) << 35)
+	case 7:
+		n = uint64(buf[0]&0x7F) | (uint64(buf[1]&0x7F) << 7) | (uint64(buf[2]&0x7F) << 14) | (uint64(buf[3]&0x7F) << 21) | (uint64(buf[4]&0x7F) << 28) | (uint64(buf[5]&0x7F) << 35) | (uint64(buf[6]&0x7F) << 42)
+	case 8:
+		n = uint64(buf[0]&0x7F) | (uint64(buf[1]&0x7F) << 7) | (uint64(buf[2]&0x7F) << 14) | (uint64(buf[3]&0x7F) << 21) | (uint64(buf[4]&0x7F) << 28) | (uint64(buf[5]&0x7F) << 35) | (uint64(buf[6]&0x7F) << 42) | (uint64(buf[7]&0x7F) << 49)
+	case 9:
+		n = uint64(buf[0]&0x7F) | (uint64(buf[1]&0x7F) << 7) | (uint64(buf[2]&0x7F) << 14) | (uint64(buf[3]&0x7F) << 21) | (uint64(buf[4]&0x7F) << 28) | (uint64(buf[5]&0x7F) << 35) | (uint64(buf[6]&0x7F) << 42) | (uint64(buf[7]&0x7F) << 49) | (uint64(buf[8]&0x7F) << 56)
+	case 10:
+		n = uint64(buf[0]&0x7F) | (uint64(buf[1]&0x7F) << 7) | (uint64(buf[2]&0x7F) << 14) | (uint64(buf[3]&0x7F) << 21) | (uint64(buf[4]&0x7F) << 28) | (uint64(buf[5]&0x7F) << 35) | (uint64(buf[6]&0x7F) << 42) | (uint64(buf[7]&0x7F) << 49) | (uint64(buf[8]&0x7F) << 56) | (uint64(buf[9]&0x7F) << 63)
+	default:
+		panic("impossible error: buf length must be 1 to 10")
+	}
+	return int64(n>>1) ^ (int64(n<<63) >> 63)
+}
+
+// 解码 n 个 int64
+// 返回 tail
+func UnmarshalVarInt64sV1(dst []int64, src []byte) ([]byte, error) {
+	idx := uint(0)
+	for i := range dst { // 解码多少个 int64
+		if idx >= uint(len(src)) {
+			return nil, fmt.Errorf("cannot unmarshal varint from empty data")
+		}
+		c := src[idx]
+		idx++
+		if c < 0x80 {
+			// Fast path
+			v := int8(c>>1) ^ (int8(c<<7) >> 7) // zig-zag decoding without branching.
+			dst[i] = int64(v)
+			continue
+		}
+		// 对 2 字节的情况进行加速
+		if idx < uint(len(src)) && src[idx] < 0x80 {
+			n := uint64(c&0x7f) | (uint64(src[idx]&0x7f) << 7)
+			dst[i] = int64(n>>1) ^ (int64(n<<63) >> 63)
+			idx++
+			continue
+		}
+		// 查找结束位置
+		j := idx + 1
+		// if uint(len(src))-j >= 8 {
+		// 	if src[j] < 0x80 {
+		// 		j += 0
+		// 	} else if src[j+1] < 0x80 {
+		// 		j += 1
+		// 	} else if src[j+2] < 0x80 {
+		// 		j += 2
+		// 	} else if src[j+3] < 0x80 {
+		// 		j += 3
+		// 	} else if src[j+4] < 0x80 {
+		// 		j += 4
+		// 	} else if src[j+5] < 0x80 {
+		// 		j += 5
+		// 	} else if src[j+6] < 0x80 {
+		// 		j += 6
+		// 	} else if src[j+7] < 0x80 {
+		// 		j += 7
+		// 	} else {
+		// 		return nil, fmt.Errorf("cannot unmarshal varint, not found end at %d", j+7)
+		// 	}
+		// } else {
+		// 	for ; j < uint(len(src)); j++ {
+		// 		if src[j] < 0x80 {
+		// 			break
+		// 		}
+		// 	}
+		// }
+		for ; j < uint(len(src)); j++ {
+			if src[j] < 0x80 {
+				break
+			}
+		}
+		//bufLen :=
+		if j-idx > 10 {
+			return nil, fmt.Errorf("cannot unmarshal varint, buffer too long, len=%d", j-idx)
+		}
+		dst[i] = UnmarshalVarInt64ForOne(src[idx-1 : j+1])
+		idx = j + 1
+	}
+	return src[idx:], nil
+}
+
+func UnmarshalVarInt64V1(src []byte) ([]byte, int64, error) {
+	var tmp [1]int64
+	tail, err := UnmarshalVarInt64sV1(tmp[:], src)
+	return tail, tmp[0], err
 }
 
 // MarshalVarUint64 appends marshaled u to dst and returns the result.
@@ -520,6 +622,10 @@ func MarshalVarInt64sV9(dst []byte, vs []int64) []byte {
 func MarshalVarInt64s(dst []byte, vs []int64) []byte {
 	for _, v := range vs {
 		n := uint64((v << 1) ^ (v >> 63))
+		if n < (1 << 7) {
+			dst = append(dst, byte(n))
+			continue
+		}
 		switch (64 - bits.LeadingZeros64(n>>1)) / 7 {
 		case 0:
 			dst = append(dst, byte(n))

@@ -114,6 +114,69 @@ func benchmarkMarshalVarInt64s(b *testing.B, maxValue int64) {
 	})
 }
 
+/*
+=== RUN   BenchmarkUnmarshalVarInt64s/up-to-(1<<6)-1
+BenchmarkUnmarshalVarInt64s/up-to-(1<<6)-1
+BenchmarkUnmarshalVarInt64s/up-to-(1<<6)-1-10            1579142               793.7 ns/op      10079.69 MB/s          0 B/op       0 allocs/op
+=== RUN   BenchmarkUnmarshalVarInt64s/up-to-(1<<13)-1
+BenchmarkUnmarshalVarInt64s/up-to-(1<<13)-1
+BenchmarkUnmarshalVarInt64s/up-to-(1<<13)-1-10            568491              1816 ns/op        4404.86 MB/s           0 B/op       0 allocs/op
+=== RUN   BenchmarkUnmarshalVarInt64s/up-to-(1<<27)-1
+BenchmarkUnmarshalVarInt64s/up-to-(1<<27)-1
+BenchmarkUnmarshalVarInt64s/up-to-(1<<27)-1-10            231183              4840 ns/op        1652.94 MB/s           0 B/op       0 allocs/op
+=== RUN   BenchmarkUnmarshalVarInt64s/up-to-(1<<63)-1
+BenchmarkUnmarshalVarInt64s/up-to-(1<<63)-1
+BenchmarkUnmarshalVarInt64s/up-to-(1<<63)-1-10            124256              8935 ns/op         895.37 MB/s           0 B/op       0 allocs/op
+
+优化后：
+=== RUN   BenchmarkUnmarshalVarInt64s/up-to-(1<<6)-1
+BenchmarkUnmarshalVarInt64s/up-to-(1<<6)-1
+BenchmarkUnmarshalVarInt64s/up-to-(1<<6)-1-10            1556316               773.1 ns/op      10347.52 MB/s          0 B/op          0 allocs/op
+=== RUN   BenchmarkUnmarshalVarInt64s/up-to-(1<<13)-1
+BenchmarkUnmarshalVarInt64s/up-to-(1<<13)-1
+BenchmarkUnmarshalVarInt64s/up-to-(1<<13)-1-10            927207              1102 ns/op        7260.63 MB/s           0 B/op          0 allocs/op
+=== RUN   BenchmarkUnmarshalVarInt64s/up-to-(1<<27)-1
+BenchmarkUnmarshalVarInt64s/up-to-(1<<27)-1
+BenchmarkUnmarshalVarInt64s/up-to-(1<<27)-1-10            271472              4216 ns/op        1897.48 MB/s           0 B/op          0 allocs/op
+=== RUN   BenchmarkUnmarshalVarInt64s/up-to-(1<<63)-1
+BenchmarkUnmarshalVarInt64s/up-to-(1<<63)-1
+BenchmarkUnmarshalVarInt64s/up-to-(1<<63)-1-10            179229              6438 ns/op        1242.55 MB/s           0 B/op          0 allocs/op
+
+优化后，测试 2：
+BenchmarkUnmarshalVarInt64s/up-to-(1<<6)-1
+BenchmarkUnmarshalVarInt64s/up-to-(1<<6)-1-10            1543092               796.8 ns/op      10039.85 MB/s          0 B/op          0 allocs/op
+=== RUN   BenchmarkUnmarshalVarInt64s/up-to-(1<<13)-1
+BenchmarkUnmarshalVarInt64s/up-to-(1<<13)-1
+BenchmarkUnmarshalVarInt64s/up-to-(1<<13)-1-10           1000000              1123 ns/op        7125.49 MB/s           0 B/op          0 allocs/op
+=== RUN   BenchmarkUnmarshalVarInt64s/up-to-(1<<27)-1
+BenchmarkUnmarshalVarInt64s/up-to-(1<<27)-1
+BenchmarkUnmarshalVarInt64s/up-to-(1<<27)-1-10            282601              3802 ns/op        2104.30 MB/s           0 B/op          0 allocs/op
+=== RUN   BenchmarkUnmarshalVarInt64s/up-to-(1<<63)-1
+BenchmarkUnmarshalVarInt64s/up-to-(1<<63)-1
+BenchmarkUnmarshalVarInt64s/up-to-(1<<63)-1-10            179688              6460 ns/op        1238.30 MB/s           0 B/op          0 allocs/op
+
+# if 很多的版本
+BenchmarkUnmarshalVarInt64s/up-to-(1<<6)-1-10            1536982               800.6 ns/op      9992.56 MB/s           0 B/op          0 allocs/op
+=== RUN   BenchmarkUnmarshalVarInt64s/up-to-(1<<13)-1
+BenchmarkUnmarshalVarInt64s/up-to-(1<<13)-1
+BenchmarkUnmarshalVarInt64s/up-to-(1<<13)-1-10            929529              1130 ns/op        7078.76 MB/s           0 B/op          0 allocs/op
+=== RUN   BenchmarkUnmarshalVarInt64s/up-to-(1<<27)-1
+BenchmarkUnmarshalVarInt64s/up-to-(1<<27)-1
+BenchmarkUnmarshalVarInt64s/up-to-(1<<27)-1-10            275342              3866 ns/op        2069.19 MB/s           0 B/op          0 allocs/op
+=== RUN   BenchmarkUnmarshalVarInt64s/up-to-(1<<63)-1
+BenchmarkUnmarshalVarInt64s/up-to-(1<<63)-1
+BenchmarkUnmarshalVarInt64s/up-to-(1<<63)-1-10            189729              6011 ns/op        1330.80 MB/s           0 B/op          0 allocs/op
+
+go test -benchmem -run=^$ -bench ^BenchmarkUnmarshalVarInt64s$ github.com/VictoriaMetrics/VictoriaMetrics/lib/encoding
+
+go test -gcflags="-B" -benchmem -run=^$ -bench ^BenchmarkUnmarshalVarInt64s$ github.com/VictoriaMetrics/VictoriaMetrics/lib/encoding
+
+去掉边界检查：
+BenchmarkUnmarshalVarInt64s/up-to-(1<<6)-1-10            1596145               798.4 ns/op      10019.45 MB/s          0 B/op          0 allocs/op
+BenchmarkUnmarshalVarInt64s/up-to-(1<<13)-1-10            930436              1113 ns/op        7186.06 MB/s           0 B/op          0 allocs/op
+BenchmarkUnmarshalVarInt64s/up-to-(1<<27)-1-10            294136              3590 ns/op        2228.57 MB/s           0 B/op          0 allocs/op
+BenchmarkUnmarshalVarInt64s/up-to-(1<<63)-1-10            188545              6030 ns/op        1326.62 MB/s           0 B/op          0 allocs/op
+*/
 func BenchmarkUnmarshalVarInt64s(b *testing.B) {
 	b.Run("up-to-(1<<6)-1", func(b *testing.B) {
 		benchmarkUnmarshalVarInt64s(b, (1<<6)-1)
@@ -147,7 +210,7 @@ func benchmarkUnmarshalVarInt64s(b *testing.B, maxValue int64) {
 		var sink uint64
 		dst := make([]int64, numsCount)
 		for pb.Next() {
-			tail, err := UnmarshalVarInt64s(dst, data)
+			tail, err := UnmarshalVarInt64sV1(dst, data)
 			if err != nil {
 				panic(fmt.Errorf("unexpected error: %w", err))
 			}
