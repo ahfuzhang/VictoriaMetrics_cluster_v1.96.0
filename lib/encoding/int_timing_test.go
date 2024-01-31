@@ -251,7 +251,7 @@ func Benchmark_MarshalVarInt64s_v11(b *testing.B) {
 	var buf [1024 * 32]byte
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = MarshalVarInt64sV12(buf[:0], arr)
+		_ = MarshalVarInt64sV11(buf[:0], arr)
 	}
 }
 

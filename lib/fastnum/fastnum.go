@@ -141,7 +141,7 @@ func float64ToByteSlice(a []float64) (b []byte) {
 }
 
 var (
-	int64Zeros [8 * 1024]int64
+	int64Zeros [8 * 1024]int64  // 8kb * 8 = 64kb，这种优化不算很聪明
 	int64Ones  = func() (a [8 * 1024]int64) {
 		for i := 0; i < len(a); i++ {
 			a[i] = 1

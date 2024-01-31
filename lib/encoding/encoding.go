@@ -170,7 +170,7 @@ func marshalInt64Array(dst []byte, a []int64, precisionBits uint8) (result []byt
 	return dst, mt, firstValue
 }
 
-func unmarshalInt64Array(dst []int64, src []byte, mt MarshalType, firstValue int64, itemsCount int) ([]int64, error) {
+func unmarshalInt64Array(dst []int64, src []byte, mt MarshalType, firstValue int64, itemsCount int) ([]int64, error) {  // 热点函数
 	// Extend dst capacity in order to eliminate memory allocations below.
 	dst = decimal.ExtendInt64sCapacity(dst, itemsCount)
 
@@ -286,7 +286,7 @@ func EnsureNonDecreasingSequence(a []int64, vMin, vMax int64) {
 }
 
 // isConst returns true if a contains only equal values.
-func isConst(a []int64) bool {
+func isConst(a []int64) bool {  // todo: 适合使用 simd 优化
 	if len(a) == 0 {
 		return false
 	}

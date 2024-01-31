@@ -389,7 +389,7 @@ func Test_ZigZag1(t *testing.T) {
 			t.Errorf("error, value=%d, right=%X, wrong=%X", n, dst1, dst2)
 			return
 		}
-		dst3 := MarshalVarInt64sV12(temp2[:0], values[:1])
+		dst3 := MarshalVarInt64sV11(temp2[:0], values[:1])
 		if !bytes.Equal(dst1, dst3) {
 			t.Errorf("error, value=%d, right=%X, wrong=%X", n, dst1, dst3)
 			return
