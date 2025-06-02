@@ -20,6 +20,7 @@ func tokenizeHashes(dst []uint64, a []string) []uint64 {
 			// This string has been already tokenized
 			continue
 		}
+		// todo: 把多个字符串拼接成长字符串，以此提升批量处理的性能
 		dst = t.tokenizeString(dst, s)
 	}
 	putHashTokenizer(t)
@@ -74,11 +75,11 @@ func (t *hashTokenizer) tokenizeString(dst []uint64, s string) []uint64 {
 
 	// Fast path for ASCII s
 	i := 0
-	for i < len(s) {
+	for i < len(s) { // todo: 使用 simd， 一次检查 32 个字符
 		// Search for the next token.
 		start := len(s)
 		for i < len(s) {
-			if !isTokenChar(s[i]) {
+			if !isTokenCharFast(s[i]) { // todo: 使用查表法
 				i++
 				continue
 			}
@@ -89,7 +90,7 @@ func (t *hashTokenizer) tokenizeString(dst []uint64, s string) []uint64 {
 		// Search for the end of the token.
 		end := len(s)
 		for i < len(s) {
-			if isTokenChar(s[i]) {
+			if isTokenCharFast(s[i]) {
 				i++
 				continue
 			}
@@ -103,7 +104,7 @@ func (t *hashTokenizer) tokenizeString(dst []uint64, s string) []uint64 {
 
 		// Register the token.
 		token := s[start:end]
-		if h, ok := t.addToken(token); ok {
+		if h, ok := t.addToken(token); ok { // todo: 要思考，如何避免重复计算 hash 值
 			dst = append(dst, h)
 		}
 	}
@@ -114,8 +115,8 @@ func (t *hashTokenizer) tokenizeStringUnicode(dst []uint64, s string) []uint64 {
 	for len(s) > 0 {
 		// Search for the next token.
 		n := len(s)
-		for offset, r := range s {
-			if isTokenRune(r) {
+		for offset, r := range s { // todo: 思考，如何用 simd 来加速 utf-8 解析
+			if isTokenRuneFast(r) { // todo: 使用 8kb 共 65536 bit 的位图，来做 O(1) 的判断
 				n = offset
 				break
 			}
@@ -124,7 +125,7 @@ func (t *hashTokenizer) tokenizeStringUnicode(dst []uint64, s string) []uint64 {
 		// Search for the end of the token.
 		n = len(s)
 		for offset, r := range s {
-			if !isTokenRune(r) {
+			if !isTokenRuneFast(r) {
 				n = offset
 				break
 			}

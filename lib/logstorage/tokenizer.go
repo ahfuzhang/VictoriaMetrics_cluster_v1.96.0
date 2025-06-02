@@ -39,13 +39,13 @@ func (t *tokenizer) tokenizeString(dst []string, s string, keepDuplicateTokens b
 	}
 
 	// Fast path for ASCII s
-	m := t.m
+	m := t.m // 对取得的子串去重
 	i := 0
 	for i < len(s) {
 		// Search for the next token.
 		start := len(s)
 		for i < len(s) {
-			if !isTokenChar(s[i]) {
+			if !isTokenChar(s[i]) { // 跳过非 token 的字符
 				i++
 				continue
 			}
@@ -121,8 +121,49 @@ func isTokenChar(c byte) bool {
 	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_'
 }
 
+func isTokenCharFast(c byte) bool {
+	return tokenCharTable[c] != 0
+}
+
+var tokenCharTable [256]byte = initTokenCharTable()
+
+func initTokenCharTable() (table [256]byte) {
+	for c := 'a'; c <= 'z'; c++ {
+		table[c] = 0xff
+	}
+	for c := 'A'; c <= 'Z'; c++ {
+		table[c] = 0xff
+	}
+	for c := '0'; c <= '9'; c++ {
+		table[c] = 0xff
+	}
+	table['_'] = 0xff
+	return
+}
+
 func isTokenRune(c rune) bool {
 	return unicode.IsLetter(c) || unicode.IsDigit(c) || c == '_'
+}
+
+var unicodeTokenTable [65536 / 8]byte = initUnicodeTokenCharTable()
+
+func initUnicodeTokenCharTable() (table [65536 / 8]byte) {
+	for i := 0; i < 65536; i++ {
+		r := rune(i)
+		if isTokenRune(r) {
+			byteIndex := i / 8
+			bitIndex := i % 8
+			table[byteIndex] |= (1 << bitIndex)
+		}
+	}
+	return
+}
+
+func isTokenRuneFast(c rune) bool {
+	if c < 65536 {
+		return (unicodeTokenTable[c/8] & (1 << (c & 7))) != 0
+	}
+	return unicode.IsLetter(c) || unicode.IsDigit(c)
 }
 
 func getTokenizer() *tokenizer {

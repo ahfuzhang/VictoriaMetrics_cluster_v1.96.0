@@ -1,11 +1,14 @@
 package logstorage
 
 import (
+	"fmt"
 	"os"
 	"reflect"
 	"strings"
 	"testing"
 	"unsafe"
+
+	"github.com/VictoriaMetrics/VictoriaMetrics/lib/stringsutil"
 )
 
 func TestTokenizeStrings(t *testing.T) {
@@ -30,9 +33,21 @@ Apr 28 13:48:01 localhost kernel: [36020.497806] CPU0: Core temperature above th
 		"temperature", "above", "threshold", "cpu", "clock", "throttled", "total", "events", "22034"})
 }
 
+func removeNonAscii(data []byte) {
+	found := false
+	for i := range data {
+		if data[i] > 127 {
+			data[i] &= 0x7F
+			found = true
+		}
+	}
+	if !found {
+		panic("all is ascii")
+	}
+}
+
 // go test -benchmem -v -run=^$ -bench ^Benchmark_tokenize$ github.com/VictoriaMetrics/VictoriaMetrics/lib/logstorage
-// go test -benchmem -v -run=^$ -benchmem -cpuprofile cpu.prof -bench ^Benchmark_tokenize$ github.com/VictoriaMetrics/VictoriaMetrics/lib/logstorage
-// go test -bench ^BenchmarkIsASCII$ -benchmem -cpuprofile cpu.prof string_utils
+// go test -benchmem -v -run=^$ -benchmem -cpuprofile cpu2.prof -bench ^Benchmark_tokenize$ github.com/VictoriaMetrics/VictoriaMetrics/lib/logstorage
 /*
 goos: linux
 goarch: amd64
@@ -47,10 +62,29 @@ func Benchmark_tokenize(b *testing.B) {
 		b.Error(err)
 		return
 	}
+	data2 := make([]byte, 0, len(data))
+	data2 = append(data2, data...)
+	removeNonAscii(data2)
 	s := unsafe.String(&data[0], len(data))
-	b.SetBytes(int64(len(data)))
+	s2 := unsafe.String(&data2[0], len(data2))
+	if !stringsutil.IsASCII(s2) {
+		b.Error("not ascii")
+		return
+	}
+	fmt.Printf("len:%d", len(s))
+	b.SetBytes(int64(len(data2)))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = tokenizeStrings(nil, []string{s})
+		_ = tokenizeStrings(nil, []string{s2})
+	}
+}
+
+// go test -timeout 30s -run ^Test_unicode_token_char$ github.com/VictoriaMetrics/VictoriaMetrics/lib/logstorage
+func Test_unicode_token_char(t *testing.T) {
+	for i := 0; i < 0x10FFFF; i++ {
+		r := rune(i)
+		if isTokenRune(r) != isTokenRuneFast(r) {
+			t.Error("not equal")
+		}
 	}
 }
