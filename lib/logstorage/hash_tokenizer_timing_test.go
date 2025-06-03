@@ -51,6 +51,10 @@ pkg: github.com/VictoriaMetrics/VictoriaMetrics/lib/logstorage
 cpu: Intel(R) Xeon(R) Platinum 8260 CPU @ 2.40GHz
 BenchmarkTokenizeHashesUnicode
 BenchmarkTokenizeHashesUnicode-8          274152              4264 ns/op         821.78 MB/s           0 B/op          0 allocs/op
+
+// 合并为长字符串后
+BenchmarkTokenizeHashesUnicode-8          264986              4231 ns/op         828.13 MB/s           0 B/op          0 allocs/op
+
 */
 func BenchmarkTokenizeHashesUnicode(b *testing.B) {
 	a := strings.Split(benchLogs, "\n")

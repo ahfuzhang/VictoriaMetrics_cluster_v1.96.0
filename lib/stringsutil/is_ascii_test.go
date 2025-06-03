@@ -7,6 +7,10 @@ import (
 	"unsafe"
 )
 
+/*
+more detail of plan9 assembly, please see: https://github.com/ahfuzhang/learning_go_plan9_assembly/tree/dev/20250529/examples/is_ascii
+*/
+
 const str32 = "12345678901234567890123456789012"
 const str32NotAscii = "123456789012345678901234567890\x81\x82"
 
@@ -86,8 +90,7 @@ func TestIsASCII(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := IsASCII(tt.args.s)
-			if got != tt.want {
+			if got := IsASCII(tt.args.s); got != tt.want {
 				t.Errorf("IsASCII() = %v, want %v", got, tt.want)
 			}
 		})
@@ -100,6 +103,21 @@ func getRandomString(strLen int) string {
 		buf[i] = byte(rand.Intn(128)) // 0-127
 	}
 	return unsafe.String(&buf[0], strLen)
+}
+
+// go test -benchmem -v -run=^$ -bench ^Benchmark_is_ascii$ github.com/VictoriaMetrics/VictoriaMetrics/lib/stringsutil
+// 34335.78 MB/s simd version
+func Benchmark_is_ascii(b *testing.B) {
+	strLen := 1024 * 1024
+	s := getRandomString(strLen)
+	b.SetBytes(int64(strLen))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ret := IsASCII(s)
+		if !ret {
+			b.Fatalf("ret=%v", ret)
+		}
+	}
 }
 
 func IsASCII_one_by_one(s string) bool {
@@ -118,13 +136,6 @@ goarch: amd64
 pkg: is_ascii
 cpu: Intel(R) Xeon(R) Platinum 8260 CPU @ 2.40GHz
 // 674.37 MB/s
-
-goos: darwin
-goarch: arm64
-pkg: github.com/VictoriaMetrics/VictoriaMetrics/lib/stringsutil
-cpu: Apple M3 Pro
-Benchmark_is_ascii_one_by_one
-Benchmark_is_ascii_one_by_one-12            2167            576643 ns/op        1818.41 MB/s           0 B/op          0 allocs/op
 */
 func Benchmark_is_ascii_one_by_one(b *testing.B) {
 	strLen := 1024 * 1024
@@ -133,29 +144,6 @@ func Benchmark_is_ascii_one_by_one(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ret := IsASCII_one_by_one(s)
-		if !ret {
-			b.Fatalf("ret=%v", ret)
-		}
-	}
-}
-
-/*
-go test -benchmem -v -run=^$ -bench ^Benchmark_is_ascii_one_by_one_faster$ github.com/VictoriaMetrics/VictoriaMetrics/lib/stringsutil
-
-goos: darwin,   performance improve 93.8%
-goarch: arm64
-pkg: github.com/VictoriaMetrics/VictoriaMetrics/lib/stringsutil
-cpu: Apple M3 Pro
-Benchmark_is_ascii_one_by_one_faster
-Benchmark_is_ascii_one_by_one_faster-12            32605             35750 ns/op        29330.44 MB/s          0 B/op          0 allocs/op
-*/
-func Benchmark_is_ascii_one_by_one_faster(b *testing.B) {
-	strLen := 1024 * 1024
-	s := getRandomString(strLen)
-	b.SetBytes(int64(strLen))
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		ret := IsASCII(s)
 		if !ret {
 			b.Fatalf("ret=%v", ret)
 		}

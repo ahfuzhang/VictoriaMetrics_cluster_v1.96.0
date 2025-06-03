@@ -1,7 +1,9 @@
 package logstorage
 
 import (
+	"sort"
 	"sync"
+	"unsafe"
 
 	"github.com/cespare/xxhash/v2"
 
@@ -15,16 +17,37 @@ import (
 // The returned hashes must be passed to appendHashesHashes before being passed to bloomFilter.containsAll.
 func tokenizeHashes(dst []uint64, a []string) []uint64 {
 	t := getHashTokenizer()
+	if !sort.StringsAreSorted(a) {
+		sort.Strings(a)
+	}
+	buf := getArena()
+	buf.reset()
+	defer putArena(buf)
+	totalLen := getTotalLen(a)
+	if cap(buf.b) < totalLen+len(a) {
+		buf.b = make([]byte, 0, totalLen+len(a))
+	}
 	for i, s := range a {
 		if i > 0 && s == a[i-1] {
 			// This string has been already tokenized
 			continue
 		}
-		dst = t.tokenizeString(dst, s)
+		buf.b = append(buf.b, s...)
+		buf.b = append(buf.b, 0) // 加入一字节的结束标志
+		//_ = buf.copyString(s)
 	}
+	dst = t.tokenizeString(dst, unsafe.String(&buf.b[0], len(buf.b)))
 	putHashTokenizer(t)
 
 	return dst
+}
+
+func getTotalLen(a []string) int {
+	var total int
+	for _, s := range a {
+		total += len(s)
+	}
+	return total
 }
 
 const hashTokenizerBucketsCount = 1024
