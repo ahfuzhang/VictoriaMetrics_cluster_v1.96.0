@@ -22,6 +22,30 @@ func TestIsConst(t *testing.T) {
 	f([]int64{1, 1, 2}, false)
 }
 
+func getData(cnt int) []int64 {
+	arr := make([]int64, cnt)
+	seed := rand.Int63n(0x7f7f7f7f7f7f7f7f)
+	for i := 0; i < cnt; i++ {
+		arr[i] = seed
+	}
+	return arr
+}
+
+// go test -benchmem -v -run=^$ -bench ^Benchmark_is_const$ github.com/VictoriaMetrics/VictoriaMetrics/lib/encoding
+// 6549.67 MB/s
+func Benchmark_is_const(b *testing.B) {
+	cnt := 1024 * 1024 * 10
+	arr := getData(cnt)
+	b.SetBytes(int64(cnt * 8))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ret := isConst(arr)
+		if !ret {
+			b.Fatalf("ret=%v", ret)
+		}
+	}
+}
+
 func TestIsDeltaConst(t *testing.T) {
 	f := func(a []int64, okExpected bool) {
 		t.Helper()

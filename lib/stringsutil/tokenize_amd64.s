@@ -1,5 +1,6 @@
 #include "textflag.h"
 
+/*
 // func tokenToBitmap(s string, asciiTable *uint8, outBitmap1 *uint8, outBitmap2 *uint8)
 TEXT ·tokenToBitmap(SB), NOSPLIT | NOFRAME, $0-40
     // frame length:  0
@@ -26,3 +27,4 @@ align_32:
     //
     JMP align_32
 align_32_end:
+*/
