@@ -414,3 +414,159 @@ align64:
 	processLen = leftLen
 	goto len_less_64
 }
+
+func stringToBitmapV0(b []byte, outBitmap []byte, outUnicodeFlags []byte) {
+	//l := len(b)
+	ptr := unsafe.Pointer(unsafe.SliceData(b))
+	//addr := uint64(uintptr(ptr))
+	//alignAddr := (addr + uint64(63)) & (^uint64(63))
+	//headLen := alignAddr - addr
+	//if headLen != 0 {
+	//	panic("only for aligned address")
+	//}
+	//if l&63 != 0 {
+	//	panic("only for aligned length")
+	//}
+	//
+	//if !isAligned(outBitmap, 8) {
+	//	panic("only for aligned outBitmap")
+	//}
+	//bitmapSize := l >> 3
+	//if len(outBitmap) < bitmapSize {
+	//	panic("outBitmap is too short")
+	//}
+	bitmapPtr := unsafe.Pointer(unsafe.SliceData(outBitmap))
+	unicodeFlagsPtr := unsafe.Pointer(unsafe.SliceData(outUnicodeFlags))
+	//
+	//blockCnt := (len(b) + 63) / 64
+	//if len(outUnicodeFlags) < (blockCnt / 8) {
+	//	panic("outUnicodeFlags is too short")
+	//}
+	//
+	for i := 0; i < len(b); i += 64 {
+		values := ((*[8]uint64)(unsafe.Add(ptr, i)))
+		v := values[0] | values[1] | values[2] | values[3] | values[4] | values[5] | values[6] | values[7]
+		v &= asciiMask
+		index := (v | -v) >> 63
+		table := &lookupTables[index]
+		result := uint64(uint64ToMask(values[0], table)) |
+			(uint64(uint64ToMask(values[1], table)) << 8) |
+			(uint64(uint64ToMask(values[2], table)) << 16) |
+			(uint64(uint64ToMask(values[3], table)) << 24) |
+			(uint64(uint64ToMask(values[4], table)) << 32) |
+			(uint64(uint64ToMask(values[5], table)) << 40) |
+			(uint64(uint64ToMask(values[6], table)) << 48) |
+			(uint64(uint64ToMask(values[7], table)) << 56)
+		// 写回
+		//if i == 0 {
+		*(*uint64)(unsafe.Add(bitmapPtr, i>>3)) = result
+		//}
+		//blockIndex := i / 64
+		//byteIndex := blockIndex / 8
+		//bitIndex := blockIndex % 8
+		//outUnicodeFlags[byteIndex] |= (uint8(index) << (bitIndex))
+
+		flags := (*uint8)(unsafe.Add(unicodeFlagsPtr, i>>9))
+		if index == 1 {
+			// 减少写
+			*flags |= (uint8(index) << ((i >> 6) & 7))
+		}
+		//outUnicodeFlags[i>>9] |= (uint8(index) << ((i >> 6) & 7))
+	}
+}
+
+func isAligned(arr []byte, n int) bool {
+	ptr := unsafe.Pointer(unsafe.SliceData(arr))
+	addr := uint64(uintptr(ptr))
+	mask := (uint64(n)) - 1
+	alignAddr := (addr + mask) & (^mask)
+	headLen := alignAddr - addr
+	return headLen == 0
+}
+
+func getHeadLenForAlign(arr []byte, n int) int {
+	ptr := unsafe.Pointer(unsafe.SliceData(arr))
+	addr := uint64(uintptr(ptr))
+	mask := (uint64(n)) - 1
+	alignAddr := (addr + mask) & (^mask)
+	headLen := alignAddr - addr
+	return int(headLen)
+}
+
+//go:linkname MemsetZero runtime.memclrNoHeapPointers
+func MemsetZero(ptr unsafe.Pointer, n uintptr)
+
+func SetZero(b []byte) {
+	MemsetZero(unsafe.Pointer(unsafe.SliceData(b)), uintptr(len(b)))
+}
+
+func stringToBitmapV1(b []byte, outBitmap []byte, outUnicodeFlags []byte) {
+	ptr := unsafe.Pointer(unsafe.SliceData(b))
+	bitmapPtr := unsafe.Pointer(unsafe.SliceData(outBitmap))
+	unicodeFlagsPtr := unsafe.Pointer(unsafe.SliceData(outUnicodeFlags))
+	for i := 0; i < len(b); i += 64 {
+		values := ((*[8]uint64)(unsafe.Add(ptr, i)))
+		v := values[0] | values[1] | values[2] | values[3] | values[4] | values[5] | values[6] | values[7]
+		v &= asciiMask
+		index := (v | -v) >> 63
+		table := &lookupTables[index]
+		result := uint64(uint64PtrToMask(unsafe.Add(ptr, i), table)) |
+			(uint64(uint64PtrToMask(unsafe.Add(ptr, i+8), table)) << 8) |
+			(uint64(uint64PtrToMask(unsafe.Add(ptr, i+16), table)) << 16) |
+			(uint64(uint64PtrToMask(unsafe.Add(ptr, i+24), table)) << 24) |
+			(uint64(uint64PtrToMask(unsafe.Add(ptr, i+32), table)) << 32) |
+			(uint64(uint64PtrToMask(unsafe.Add(ptr, i+40), table)) << 40) |
+			(uint64(uint64PtrToMask(unsafe.Add(ptr, i+48), table)) << 48) |
+			(uint64(uint64PtrToMask(unsafe.Add(ptr, i+56), table)) << 56)
+		// 写回
+		*(*uint64)(unsafe.Add(bitmapPtr, i>>3)) = result
+		flags := (*uint8)(unsafe.Add(unicodeFlagsPtr, i>>9))
+		if index == 1 {
+			// 减少写
+			*flags |= (uint8(index) << ((i >> 6) & 7))
+		}
+	}
+}
+
+func uint64PtrToMask(ptr unsafe.Pointer, table *[256]byte) uint8 {
+	chars := (*[8]uint8)(ptr)
+	return (table[chars[0]]) |
+		(table[chars[1]] << 1) |
+		(table[chars[2]] << 2) |
+		(table[chars[3]] << 3) |
+		(table[chars[4]] << 4) |
+		(table[chars[5]] << 5) |
+		(table[chars[6]] << 6) |
+		(table[chars[7]] << 7)
+}
+
+func stringToBitmapV2(b []byte, outBitmap []byte, outUnicodeFlags []byte) {
+	ptr := unsafe.Pointer(unsafe.SliceData(b))
+	bitmapPtr := unsafe.Pointer(unsafe.SliceData(outBitmap))
+	unicodeFlagsPtr := unsafe.Pointer(unsafe.SliceData(outUnicodeFlags))
+	var charsResult [8]uint8
+	resultPtr := (*uint64)(unsafe.Pointer(&charsResult))
+	for i := 0; i < len(b); i += 64 {
+		values := ((*[8]uint64)(unsafe.Add(ptr, i)))
+		v := values[0] | values[1] | values[2] | values[3] | values[4] | values[5] | values[6] | values[7]
+		v &= asciiMask
+		index := (v | -v) >> 63
+		table := &lookupTables[index]
+		//
+		charsResult[0] = uint64ToMask(values[0], table)
+		charsResult[1] = uint64ToMask(values[1], table)
+		charsResult[2] = uint64ToMask(values[2], table)
+		charsResult[3] = uint64ToMask(values[3], table)
+		charsResult[4] = uint64ToMask(values[4], table)
+		charsResult[5] = uint64ToMask(values[5], table)
+		charsResult[6] = uint64ToMask(values[6], table)
+		charsResult[7] = uint64ToMask(values[7], table)
+		// 写回
+		*(*uint64)(unsafe.Add(bitmapPtr, i>>3)) = *resultPtr
+		flags := (*uint8)(unsafe.Add(unicodeFlagsPtr, i>>9))
+		if index == 1 {
+			// 减少写
+			*flags |= (uint8(index) << ((i >> 6) & 7))
+		}
+	}
+}

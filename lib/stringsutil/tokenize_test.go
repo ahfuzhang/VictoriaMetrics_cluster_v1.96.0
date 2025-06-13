@@ -142,3 +142,128 @@ func BenchmarkTokenize(b *testing.B) {
 		Tokenize(data, empty)
 	}
 }
+
+/*
+4685.61 MB/s
+4721.47 MB/s  去掉了多于的检查
+4910.76 MB/s  去掉数组越界检查
+4968.99 MB/s  减少flags 的写
+4961.00 MB/s  就算不写回内存，性能也仍然没有提升
+*/
+func Benchmark_stringToBitmapV0(b *testing.B) {
+	data, err := os.ReadFile("../../test/data/rfc-ref.txt")
+	if err != nil {
+		b.Error(err)
+		return
+	}
+	headLen := getHeadLenForAlign(data, 64)
+	data = data[headLen:]
+	tailLen := len(data) & 63
+	data = data[:len(data)-tailLen]
+	//
+	blockCnt := (len(data) + 63) / 64
+	bitmap := make([]byte, blockCnt*8+7)
+	headLen = getHeadLenForAlign(bitmap, 8)
+	bitmap = bitmap[headLen:]
+	tailLen = len(bitmap) & 7
+	bitmap = bitmap[:len(bitmap)-tailLen]
+	//
+	//blockCnt := (len(data) + 63) / 64
+	unicodeFlags := make([]byte, (blockCnt+7)/8)
+	//
+	SetZero(bitmap)
+	SetZero(unicodeFlags)
+	b.SetBytes(int64(len(data)))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		stringToBitmapV0(data, bitmap, unicodeFlags)
+	}
+}
+
+func Test_stringToBitmapV0(t *testing.T) {
+	data, err := os.ReadFile("../../test/data/rfc-ref.txt")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	headLen := getHeadLenForAlign(data, 64)
+	data = data[headLen:]
+	tailLen := len(data) & 63
+	data = data[:len(data)-tailLen]
+	//
+	blockCnt := (len(data) + 63) / 64
+	bitmap := make([]byte, blockCnt*8+7)
+	headLen = getHeadLenForAlign(bitmap, 8)
+	bitmap = bitmap[headLen:]
+	tailLen = len(bitmap) & 7
+	bitmap = bitmap[:len(bitmap)-tailLen]
+	//
+	//blockCnt := (len(data) + 63) / 64
+	unicodeFlags := make([]byte, (blockCnt+7)/8)
+	//
+	SetZero(bitmap)
+	SetZero(unicodeFlags)
+	stringToBitmapV0(data, bitmap, unicodeFlags)
+}
+
+// 3165.34 MB/s 负优化
+func Benchmark_stringToBitmapV1(b *testing.B) {
+	data, err := os.ReadFile("../../test/data/rfc-ref.txt")
+	if err != nil {
+		b.Error(err)
+		return
+	}
+	headLen := getHeadLenForAlign(data, 64)
+	data = data[headLen:]
+	tailLen := len(data) & 63
+	data = data[:len(data)-tailLen]
+	//
+	blockCnt := (len(data) + 63) / 64
+	bitmap := make([]byte, blockCnt*8+7)
+	headLen = getHeadLenForAlign(bitmap, 8)
+	bitmap = bitmap[headLen:]
+	tailLen = len(bitmap) & 7
+	bitmap = bitmap[:len(bitmap)-tailLen]
+	//
+	//blockCnt := (len(data) + 63) / 64
+	unicodeFlags := make([]byte, (blockCnt+7)/8)
+	//
+	SetZero(bitmap)
+	SetZero(unicodeFlags)
+	b.SetBytes(int64(len(data)))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		stringToBitmapV1(data, bitmap, unicodeFlags)
+	}
+}
+
+// 4940.75 MB/s 减少位运算，并未见明显提升
+func Benchmark_stringToBitmapV2(b *testing.B) {
+	data, err := os.ReadFile("../../test/data/rfc-ref.txt")
+	if err != nil {
+		b.Error(err)
+		return
+	}
+	headLen := getHeadLenForAlign(data, 64)
+	data = data[headLen:]
+	tailLen := len(data) & 63
+	data = data[:len(data)-tailLen]
+	//
+	blockCnt := (len(data) + 63) / 64
+	bitmap := make([]byte, blockCnt*8+7)
+	headLen = getHeadLenForAlign(bitmap, 8)
+	bitmap = bitmap[headLen:]
+	tailLen = len(bitmap) & 7
+	bitmap = bitmap[:len(bitmap)-tailLen]
+	//
+	//blockCnt := (len(data) + 63) / 64
+	unicodeFlags := make([]byte, (blockCnt+7)/8)
+	//
+	SetZero(bitmap)
+	SetZero(unicodeFlags)
+	b.SetBytes(int64(len(data)))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		stringToBitmapV2(data, bitmap, unicodeFlags)
+	}
+}
