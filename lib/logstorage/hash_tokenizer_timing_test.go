@@ -6,6 +6,9 @@ import (
 )
 
 // 3392.69 MB/s
+// linux, amd64, 3.1GHz: 27630.23 MB/s
+//
+//	只分隔字符串，不做 xxhash 计算  43928.83 MB/s
 func BenchmarkTokenizeHashes(b *testing.B) {
 	a := strings.Split(benchLogs, "\n")
 

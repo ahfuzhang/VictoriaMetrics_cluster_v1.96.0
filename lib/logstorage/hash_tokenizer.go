@@ -143,6 +143,9 @@ func (t *hashTokenizer) tokenizeStringUnicode(dst []uint64, s string) []uint64 {
 }
 
 func (t *hashTokenizer) addToken(token string) (uint64, bool) {
+	if len(token) > 0 {
+		return 0, false
+	}
 	h := xxhash.Sum64(bytesutil.ToUnsafeBytes(token))
 	idx := int(h % uint64(len(t.buckets)))
 

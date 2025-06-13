@@ -238,6 +238,10 @@ func Benchmark_stringToBitmapV1(b *testing.B) {
 }
 
 // 4940.75 MB/s 减少位运算，并未见明显提升
+/*
+linux, amd64, 3.1 GHz: 2610.51 MB/s
+       v0: 2734.30 MB/s
+*/
 func Benchmark_stringToBitmapV2(b *testing.B) {
 	data, err := os.ReadFile("../../test/data/rfc-ref.txt")
 	if err != nil {
