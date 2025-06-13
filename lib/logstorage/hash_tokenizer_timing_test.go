@@ -5,6 +5,7 @@ import (
 	"testing"
 )
 
+// 3392.69 MB/s
 func BenchmarkTokenizeHashes(b *testing.B) {
 	a := strings.Split(benchLogs, "\n")
 
