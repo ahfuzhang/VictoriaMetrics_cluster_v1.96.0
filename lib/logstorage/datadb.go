@@ -70,7 +70,7 @@ type datadb struct {
 	path string
 
 	// flushInterval is interval for flushing the inmemory parts to disk
-	flushInterval time.Duration
+	flushInterval time.Duration // 定期把内存数据刷入磁盘
 
 	// inmemoryParts contains a list of inmemory parts
 	inmemoryParts []*partWrapper
@@ -211,7 +211,7 @@ func (ddb *datadb) startBackgroundWorkers() {
 }
 
 var (
-	inmemoryPartsConcurrencyCh = make(chan struct{}, cgroup.AvailableCPUs())
+	inmemoryPartsConcurrencyCh = make(chan struct{}, cgroup.AvailableCPUs()) // 用于控制并发量
 	smallPartsConcurrencyCh    = make(chan struct{}, cgroup.AvailableCPUs())
 	bigPartsConcurrencyCh      = make(chan struct{}, cgroup.AvailableCPUs())
 )
@@ -219,7 +219,7 @@ var (
 func (ddb *datadb) startSmallPartsMergers() {
 	ddb.partsLock.Lock()
 	for i := 0; i < cap(smallPartsConcurrencyCh); i++ {
-		ddb.startSmallPartsMergerLocked()
+		ddb.startSmallPartsMergerLocked() // 启动与 n 个核等数量的协程来做 merge
 	}
 	ddb.partsLock.Unlock()
 }
@@ -282,7 +282,8 @@ func (ddb *datadb) inmemoryPartsFlusher() {
 		case <-ddb.stopCh:
 			return
 		case <-ticker.C:
-			ddb.mustFlushInmemoryPartsToFiles(false)
+			ddb.mustFlushInmemoryPartsToFiles(false) // 定期把内存数据刷入磁盘
+			// 最少 1 秒
 		}
 	}
 }
@@ -400,7 +401,7 @@ func (ddb *datadb) smallPartsMerger() {
 			return
 		}
 
-		smallPartsConcurrencyCh <- struct{}{}
+		smallPartsConcurrencyCh <- struct{}{} // 限制最大并发数
 		ddb.mustMergeParts(pws, false)
 		<-smallPartsConcurrencyCh
 	}
@@ -478,7 +479,7 @@ func (ddb *datadb) mustMergeParts(pws []*partWrapper, isFinal bool) {
 
 	startTime := time.Now()
 
-	dstPartType := ddb.getDstPartType(pws, isFinal)
+	dstPartType := ddb.getDstPartType(pws, isFinal)  // 根据大小判断，是分区，小分区，内存分区
 	if dstPartType != partInmemory {
 		// Make sure there is enough disk space for performing the merge
 		partsSize := getCompressedSize(pws)
@@ -527,7 +528,7 @@ func (ddb *datadb) mustMergeParts(pws []*partWrapper, isFinal bool) {
 	}
 
 	// Prepare blockStreamReaders for source parts.
-	bsrs := mustOpenBlockStreamReaders(pws)
+	bsrs := mustOpenBlockStreamReaders(pws)  // 合并之前，先展开到内存
 
 	// Prepare BlockStreamWriter for destination part.
 	srcSize := uint64(0)
@@ -539,7 +540,7 @@ func (ddb *datadb) mustMergeParts(pws []*partWrapper, isFinal bool) {
 		srcRowsCount += ph.RowsCount
 		srcBlocksCount += ph.BlocksCount
 	}
-	bsw := getBlockStreamWriter()
+	bsw := getBlockStreamWriter()  // 写分区的对象
 	var mpNew *inmemoryPart
 	if dstPartType == partInmemory {
 		mpNew = getInmemoryPart()
@@ -556,7 +557,7 @@ func (ddb *datadb) mustMergeParts(pws []*partWrapper, isFinal bool) {
 		// The final merge shouldn't be stopped even if ddb.stopCh is closed.
 		stopCh = nil
 	}
-	mustMergeBlockStreams(&ph, bsw, bsrs, stopCh)
+	mustMergeBlockStreams(&ph, bsw, bsrs, stopCh) // merge 的流程
 	putBlockStreamWriter(bsw)
 	for _, bsr := range bsrs {
 		putBlockStreamReader(bsr)
@@ -664,7 +665,7 @@ func (ddb *datadb) openCreatedPart(ph *partHeader, pws []*partWrapper, mpNew *in
 	return newPartWrapper(p, mpNew, flushDeadline)
 }
 
-func (ddb *datadb) mustAddRows(lr *LogRows) {
+func (ddb *datadb) mustAddRows(lr *LogRows) { // 写入数据部分
 	ddb.rb.mustAddRows(lr)
 }
 
@@ -705,16 +706,17 @@ func (rb *rowsBuffer) flush() {
 	}
 }
 
-func (rb *rowsBuffer) mustAddRows(lr *LogRows) {
+// 先往内存写
+func (rb *rowsBuffer) mustAddRows(lr *LogRows) { // 写入数据部分
 	if len(lr.streamIDs) == 0 {
 		return
 	}
 
 	shards := rb.shards
-	idx := rb.nextIdx.Add(1) % uint64(len(shards))
+	idx := rb.nextIdx.Add(1) % uint64(len(shards))  // 轮转分片 id
 	shard := &shards[idx]
 
-	shard.mu.Lock()
+	shard.mu.Lock() // 通过分片，来分散加锁的开销
 	if shard.flushTimer == nil {
 		shard.wg.Add(1)
 		shard.flushTimer = time.AfterFunc(time.Second, func() {
@@ -728,7 +730,7 @@ func (rb *rowsBuffer) mustAddRows(lr *LogRows) {
 	if shard.lr == nil {
 		shard.lr = getLogRows()
 	}
-	shard.lr.mustAddRows(lr)
+	shard.lr.mustAddRows(lr) // 把当前 logRows， 加入内存中的另一个 logRows
 	if shard.lr.needFlush() {
 		shard.flushLocked()
 	}
@@ -751,7 +753,7 @@ func (shard *rowsBufferShard) flushLocked() {
 }
 
 func (ddb *datadb) mustFlushLogRows(lr *logRows) {
-	inmemoryPartsConcurrencyCh <- struct{}{}
+	inmemoryPartsConcurrencyCh <- struct{}{}  // ??? 这种限制并发有意义吗
 	mp := getInmemoryPart()
 	mp.mustInitFromRows(lr)
 	p := mustOpenInmemoryPart(ddb.pt, mp)
@@ -964,7 +966,7 @@ func mustOpenBlockStreamReaders(pws []*partWrapper) []*blockStreamReader {
 		if pw.mp != nil {
 			bsr.MustInitFromInmemoryPart(pw.mp)
 		} else {
-			bsr.MustInitFromFilePart(pw.p.path)
+			bsr.MustInitFromFilePart(pw.p.path)  // 合并之前，数据展开到内存
 		}
 		bsrs = append(bsrs, bsr)
 	}
@@ -1035,12 +1037,12 @@ func (ddb *datadb) getMaxSmallPartSize() uint64 {
 	mem := memory.Remaining()
 	n := uint64(mem) / defaultPartsToMerge
 	if n < 10e6 {
-		n = 10e6
+		n = 10e6  // 最小 1mb
 	}
 	// Make sure the output part fits available disk space for small parts.
 	sizeLimit := getMaxOutBytes(ddb.path)
 	if n > sizeLimit {
-		n = sizeLimit
+		n = sizeLimit  // 最大 1TB
 	}
 	return n
 }
@@ -1048,7 +1050,7 @@ func (ddb *datadb) getMaxSmallPartSize() uint64 {
 func getMaxOutBytes(path string) uint64 {
 	n := availableDiskSpace(path)
 	if n > maxBigPartSize {
-		n = maxBigPartSize
+		n = maxBigPartSize  // 最大 1TB
 	}
 	return n
 }
@@ -1342,7 +1344,7 @@ func getBlocksCount(pws []*partWrapper) uint64 {
 	return n
 }
 
-func (ddb *datadb) mustForceMergeAllParts() {
+func (ddb *datadb) mustForceMergeAllParts() {  // 合并数据分区
 	// Flush inmemory parts to files before forced merge
 	ddb.mustFlushInmemoryPartsToFiles(true)
 
@@ -1360,10 +1362,10 @@ func (ddb *datadb) mustForceMergeAllParts() {
 	// Merge pws optimally
 	wg := getWaitGroup()
 	for len(pws) > 0 {
-		pwsToMerge, pwsRemaining := getPartsForOptimalMerge(pws)
+		pwsToMerge, pwsRemaining := getPartsForOptimalMerge(pws)  // 得到最佳的需要合并的 part
 		wg.Add(1)
 		bigPartsConcurrencyCh <- struct{}{}
-		go func(pwsChunk []*partWrapper) {
+		go func(pwsChunk []*partWrapper) {  // 独立的协程来做大分区 merge
 			defer func() {
 				<-bigPartsConcurrencyCh
 				wg.Done()

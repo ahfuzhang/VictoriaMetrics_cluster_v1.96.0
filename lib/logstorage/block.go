@@ -14,13 +14,14 @@ import (
 // block represents a block of log entries.
 type block struct {
 	// timestamps contains timestamps for log entries.
-	timestamps []int64
+	timestamps []int64 // 所有的时间戳，数组长度等于日志条数
 
-	// columns contains values for fields seen in log entries.
-	columns []column
+	// columns contains values for fields seen in log entries.  // tag name -> values
+	columns []column // 一个 name, 多个 value  // 按照名字排序
 
 	// constColumns contains fields with constant values across all the block entries.
-	constColumns []Field
+	constColumns []Field //  tag name -> tag value  // 按照名字排序
+	// 所有的 tag value 都相同的时候，这个列是 const 列
 }
 
 func (b *block) reset() {
@@ -44,14 +45,14 @@ func (b *block) reset() {
 // It is supposed that every log entry has the following format:
 //
 // 2006-01-02T15:04:05.999999999Z07:00 field1=value1 ... fieldN=valueN
-func (b *block) uncompressedSizeBytes() uint64 {
+func (b *block) uncompressedSizeBytes() uint64 { // 计算未压缩的数据长度
 	rowsCount := uint64(b.Len())
 
 	// Take into account timestamps
-	n := rowsCount * uint64(len(time.RFC3339Nano))
+	n := rowsCount * uint64(len(time.RFC3339Nano)) // 水分很大啊，这也算长度 ?
 
 	// Take into account columns
-	cs := b.columns
+	cs := b.columns //??? 为什么要这么写呢？ 难道可以提升性能吗?
 	for i := range cs {
 		c := &cs[i]
 		nameLen := uint64(len(c.name))
@@ -111,7 +112,7 @@ func uncompressedRowSizeBytes(fields []Field) uint64 {
 
 // column contains values for the given field name seen in log entries.
 type column struct {
-	// name is the field name
+	// name is the field name  // name 为空，则是 _msg
 	name string
 
 	// values is the values seen for the given log entries.
@@ -134,7 +135,12 @@ func (c *column) canStoreInConstColumn() bool {
 	if len(value) > maxConstColumnValueSize {
 		return false
 	}
-	for _, v := range values[1:] {
+	for _, v := range values[1:] { // 所有的 value 都一样，那么就是 const column
+		if len(value) != len(v) {
+			return false
+		}
+	}
+	for _, v := range values[1:] { // 所有的 value 都一样，那么就是 const column
 		if value != v {
 			return false
 		}
@@ -147,7 +153,7 @@ func (c *column) resizeValues(valuesLen int) []string {
 	return c.values
 }
 
-// mustWriteTo writes c to sw and updates ch accordingly.
+// mustWriteTo writes c to sw and updates ch accordingly.  // 看起来是做序列化
 //
 // ch is valid until c is changed.
 func (c *column) mustWriteTo(ch *columnHeader, sw *streamWriters) {
@@ -155,30 +161,35 @@ func (c *column) mustWriteTo(ch *columnHeader, sw *streamWriters) {
 
 	ch.name = c.name
 
-	bloomValuesWriter := sw.getBloomValuesWriterForColumnName(ch.name)
+	bloomValuesWriter := sw.getBloomValuesWriterForColumnName(ch.name) // 看起来是 bloom filter 的构造器
 
 	// encode values
 	ve := getValuesEncoder()
-	ch.valueType, ch.minValue, ch.maxValue = ve.encode(c.values, &ch.valuesDict)
+	// todo: 如果这里对 c.values 进行排序和拷贝，是否会有收益???
+	// 判断是否是相同的数据类型
+	ch.valueType, ch.minValue, ch.maxValue = ve.encode(c.values, &ch.valuesDict) //todo: 这里尝试了多种序列化算法. 这里消耗 1.6%
 
 	bb := longTermBufPool.Get()
 	defer longTermBufPool.Put(bb)
 
 	// marshal values
-	bb.B = marshalStringsBlock(bb.B[:0], ve.values)
+	// ve.values, 这里已经根据数据类型来序列化了
+	bb.B = marshalStringsBlock(bb.B[:0], ve.values) // 序列化，并使用 zstd 压缩。消耗写入的 15%，不好优化
 	putValuesEncoder(ve)
 	ch.valuesSize = uint64(len(bb.B))
 	if ch.valuesSize > maxValuesBlockSize {
 		logger.Panicf("BUG: too valuesSize: %d bytes; mustn't exceed %d bytes", ch.valuesSize, maxValuesBlockSize)
 	}
 	ch.valuesOffset = bloomValuesWriter.values.bytesWritten
-	bloomValuesWriter.values.MustWrite(bb.B)
+	bloomValuesWriter.values.MustWrite(bb.B) // 写入文件， values 部分
 
 	// create and marshal bloom filter for c.values
 	if ch.valueType != valueTypeDict {
 		hashesBuf := encoding.GetUint64s(0)
-		hashesBuf.A = tokenizeHashes(hashesBuf.A[:0], c.values)
-		bb.B = bloomFilterMarshalHashes(bb.B[:0], hashesBuf.A)
+		// ??? c.values 是排序好的吗? => 从之前的代码看 c.values 是未排序的
+		hashesBuf.A = tokenizeHashes(hashesBuf.A[:0], c.values) //todo: 这里消耗了 16% 的 cpu 资源
+		// 计算出 n 个 hash 值，然后写入文件
+		bb.B = bloomFilterMarshalHashes(bb.B[:0], hashesBuf.A) // block 中序列化数据, 消耗写入的 11%
 		encoding.PutUint64s(hashesBuf)
 	} else {
 		// there is no need in ecoding bloom filter for dictionary type,
@@ -197,6 +208,7 @@ func (b *block) assertValid() {
 	// Check that timestamps are in ascending order
 	timestamps := b.timestamps
 	for i := 1; i < len(timestamps); i++ {
+		// todo: 使用 simd 来优化
 		if timestamps[i-1] > timestamps[i] {
 			logger.Panicf("BUG: log entries must be sorted by timestamp; got the previous entry with bigger timestamp %d than the current entry with timestamp %d",
 				timestamps[i-1], timestamps[i])
@@ -206,7 +218,7 @@ func (b *block) assertValid() {
 	// Check that the number of items in each column matches the number of items in the block.
 	itemsCount := len(timestamps)
 	columns := b.columns
-	for _, c := range columns {
+	for _, c := range columns { // column 中 value 的数量，与行的数量一致
 		if len(c.values) != itemsCount {
 			logger.Panicf("BUG: unexpected number of values for column %q: got %d; want %d", c.name, len(c.values), itemsCount)
 		}
@@ -218,18 +230,26 @@ func (b *block) assertValid() {
 // It is expected that timestamps are sorted.
 //
 // b is valid until rows are changed.
-func (b *block) MustInitFromRows(timestamps []int64, rows [][]Field) {
+func (b *block) MustInitFromRows(timestamps []int64, rows [][]Field) { // 把多行日志，变成 block 对象
 	b.reset()
-
-	assertTimestampsSorted(timestamps)
-	b.mustInitFromRows(timestamps, rows)
-	b.sortColumnsByName()
+	// 此时 rows 已经排序好了
+	assertTimestampsSorted(timestamps)   // todo: 可以 simd 优化
+	b.mustInitFromRows(timestamps, rows) // 区分普通列和 const 列
+	b.sortColumnsByName()                // 按照 tag name 排序
 }
+
+/*
+普通列： tag_name = [value1, value2..., value_n]
+const 列： tag_name = tag value
+*/
 
 // mustInitFromRows initializes b from the given timestamps and rows.
 //
 // b is valid until rows are changed.
-func (b *block) mustInitFromRows(timestamps []int64, rows [][]Field) {
+// @param rows 已经排序好了
+// 这个函数消耗 17% 的 cpu 写入 cpu
+// 在 block 的 benchmark 中，这个函数消耗 84%
+func (b *block) mustInitFromRows(timestamps []int64, rows [][]Field) { // 把多行日志，变成 block 对象
 	if len(timestamps) != len(rows) {
 		logger.Panicf("BUG: len of timestamps %d and rows %d must be equal", len(timestamps), len(rows))
 	}
@@ -239,23 +259,27 @@ func (b *block) mustInitFromRows(timestamps []int64, rows [][]Field) {
 		// Nothing to do
 		return
 	}
-
+	// areSameFieldsInRows(rows) 为 true， 说明 rows 是个标准的二维表格
 	if areSameFieldsInRows(rows) {
 		// Fast path - all the log entries have the same fields
 		b.timestamps = append(b.timestamps, timestamps...)
 		fields := rows[0]
-		for i := range fields {
+		for i := range fields { // 遍历 tag name
 			f := &fields[i]
-			if canStoreInConstColumn(rows, i) {
-				cc := b.extendConstColumns()
+			if canStoreInConstColumn(rows, i) { // 是不是这一列的所有值都一样
+				cc := b.extendConstColumns() // 产生一个新的 const 列
 				cc.Name = f.Name
-				cc.Value = f.Value
+				cc.Value = f.Value // const 列的值，存一份就够了
 			} else {
-				c := b.extendColumns()
+				c := b.extendColumns() // 增加一个新的普通列
 				c.name = f.Name
 				values := c.resizeValues(rowsLen)
+				_ = values[len(rows)-1]  // 越界检查
 				for j := range rows {
-					values[j] = rows[j][i].Value
+					v := rows[j][i].Value  // 越界检查
+					values[j] = v // 这里是存储了所有的 tag value 吗？
+					//todo: 优化点，如果与前一列的值相同，则可以精简
+					// 注意：这里的 values 不是有序的
 				}
 			}
 		}
@@ -270,7 +294,8 @@ func (b *block) mustInitFromRows(timestamps []int64, rows [][]Field) {
 	i := 0
 	for i < len(rows) {
 		fields := rows[i]
-		if len(columnIdxs)+len(fields) > maxColumnsPerBlock {
+		if len(columnIdxs)+len(fields) > maxColumnsPerBlock { // 最多允许 2000 个 tagName
+			// todo: 这里应该做成可配置的
 			// User tries writing too many unique field names into a single log stream.
 			// It is better ignoring rows with too many field names instead of trying to store them,
 			// since the storage isn't designed to work with too big number of unique field names
@@ -280,13 +305,14 @@ func (b *block) mustInitFromRows(timestamps []int64, rows [][]Field) {
 			for k := range columnIdxs {
 				fieldNames = append(fieldNames, k)
 			}
+			// todo: 这里应该 metrics 上报
 			logger.Warnf("ignoring %d rows in the block, because they contain more than %d unique field names: %s", len(rows)-i, maxColumnsPerBlock, fieldNames)
 			break
 		}
 		for j := range fields {
 			name := fields[j].Name
 			if _, ok := columnIdxs[name]; !ok {
-				columnIdxs[name] = len(columnIdxs)
+				columnIdxs[name] = len(columnIdxs) // 避免名字重复的 tag name
 			}
 		}
 		i++
@@ -294,8 +320,9 @@ func (b *block) mustInitFromRows(timestamps []int64, rows [][]Field) {
 	rowsProcessed := i
 
 	// keep only rows that fit maxColumnsPerBlock limit
-	rows = rows[:rowsProcessed]
-	timestamps = timestamps[:rowsProcessed]
+	rows = rows[:rowsProcessed] // 总字段数超过 2000 后，后面的行会被丢弃  // 越界检查
+	// todo: 丢弃的行应该加上 metrics 上报
+	timestamps = timestamps[:rowsProcessed]// 越界检查
 	if len(rows) == 0 {
 		return
 	}
@@ -304,17 +331,18 @@ func (b *block) mustInitFromRows(timestamps []int64, rows [][]Field) {
 
 	// Initialize columns
 	cs := b.resizeColumns(len(columnIdxs))
+	_ = cs[len(columnIdxs)-1]  // 越界检查
 	for name, idx := range columnIdxs {
-		c := &cs[idx]
-		c.name = name
+		c := &cs[idx]  // 越界检查
+		c.name = name // 列名
 		c.resizeValues(len(rows))
 	}
 
 	// Write rows to block
 	for i := range rows {
-		for _, f := range rows[i] {
+		for _, f := range rows[i] { // 遍历行和列
 			idx := columnIdxs[f.Name]
-			cs[idx].values[i] = f.Value
+			cs[idx].values[i] = f.Value // 从这里看， values 并未排序  // 越界检查, 两次
 		}
 	}
 	putColumnIdxs(columnIdxs)
@@ -322,14 +350,14 @@ func (b *block) mustInitFromRows(timestamps []int64, rows [][]Field) {
 	// Detect const columns
 	for i := len(cs) - 1; i >= 0; i-- {
 		c := &cs[i]
-		if !c.canStoreInConstColumn() {
+		if !c.canStoreInConstColumn() { // 是否所有的 value 都一样
 			continue
 		}
 		cc := b.extendConstColumns()
 		cc.Name = c.name
 		cc.Value = c.values[0]
 
-		c.reset()
+		c.reset() // 这一列是 const 列，则从 columns 数组里删除掉
 		if i < len(cs)-1 {
 			swapColumns(c, &cs[len(cs)-1])
 		}
@@ -342,7 +370,7 @@ func swapColumns(a, b *column) {
 	*a, *b = *b, *a
 }
 
-func canStoreInConstColumn(rows [][]Field, colIdx int) bool {
+func canStoreInConstColumn(rows [][]Field, colIdx int) bool { // 检查第 n 列
 	if len(rows) == 0 {
 		return true
 	}
@@ -352,14 +380,56 @@ func canStoreInConstColumn(rows [][]Field, colIdx int) bool {
 	}
 	rows = rows[1:]
 	for i := range rows {
-		if value != rows[i][colIdx].Value {
+		// todo: 先比较一轮长度
+		//todo: 去掉数组下标检查
+		if len(value) != len(rows[i][colIdx].Value) { // 是不是这一列的所有值都一样？
+			return false
+		}
+	}
+	for i := range rows {
+		// todo: 先比较一轮长度
+		//todo: 去掉数组下标检查
+		if value != rows[i][colIdx].Value { // 是不是这一列的所有值都一样？
 			return false
 		}
 	}
 	return true
 }
 
+/*
+可以使用 simd 来优化
+#include <immintrin.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <stdbool.h>
+
+	bool is_sorted_avx2(const int64_t *arr, size_t n) {
+	    size_t i = 0;
+	    size_t limit = n > 4 ? n - 4 : 0;
+
+	    // 主循环：一次比较4对
+	    for (; i < limit; i += 4) {
+	        __m256i current = _mm256_loadu_si256((__m256i const *)(arr + i));
+	        __m256i next = _mm256_loadu_si256((__m256i const *)(arr + i + 1));
+
+	        __m256i cmp = _mm256_cmpgt_epi64(current, next);
+	        if (_mm256_movemask_epi8(cmp)) {
+	            return false;
+	        }
+	    }
+
+	    // 处理剩余的
+	    for (; i < n - 1; i++) {
+	        if (arr[i] > arr[i + 1]) {
+	            return false;
+	        }
+	    }
+
+	    return true;
+	}
+*/
 func assertTimestampsSorted(timestamps []int64) {
+	// todo: 这里应该使用 simd 来优化
 	for i := range timestamps {
 		if i > 0 && timestamps[i-1] > timestamps[i] {
 			logger.Panicf("BUG: log entries must be sorted by timestamp; got the previous entry with bigger timestamp %d than the current entry with timestamp %d",
@@ -404,12 +474,12 @@ func (b *block) sortColumnsByName() {
 
 	cs := getColumnsSorter()
 	cs.columns = b.columns
-	sort.Sort(cs)
+	sort.Sort(cs) // 对列排序, 按照 tag name 排序
 	putColumnsSorter(cs)
 
 	ccs := getConstColumnsSorter()
 	ccs.columns = b.constColumns
-	sort.Sort(ccs)
+	sort.Sort(ccs) // 也是按照 tag name 排序
 	putConstColumnsSorter(ccs)
 }
 
@@ -426,7 +496,7 @@ func (b *block) getColumnNames() []string {
 
 // Len returns the number of log entries in b.
 func (b *block) Len() int {
-	return len(b.timestamps)
+	return len(b.timestamps) // block 中的记录数
 }
 
 // InitFromBlockData unmarshals bd to b.
@@ -474,27 +544,27 @@ func (b *block) InitFromBlockData(bd *blockData, sbu *stringsBlockUnmarshaler, v
 
 // mustWriteTo writes b with the given sid to sw and updates bh accordingly.
 func (b *block) mustWriteTo(sid *streamID, bh *blockHeader, sw *streamWriters) {
-	b.assertValid()
+	b.assertValid() // todo: simd 优化
 	bh.reset()
 
 	bh.streamID = *sid
-	bh.uncompressedSizeBytes = b.uncompressedSizeBytes()
+	bh.uncompressedSizeBytes = b.uncompressedSizeBytes() // 计算未压缩的数据大小
 	bh.rowsCount = uint64(b.Len())
 
 	// Marshal timestamps
-	mustWriteTimestampsTo(&bh.timestampsHeader, b.timestamps, sw)
+	mustWriteTimestampsTo(&bh.timestampsHeader, b.timestamps, sw) // 序列化时间戳部分
 
 	// Marshal columns
 
 	csh := getColumnsHeader()
 
 	cs := b.columns
-	chs := csh.resizeColumnHeaders(len(cs))
+	chs := csh.resizeColumnHeaders(len(cs)) // 列头对象
 	for i := range cs {
-		cs[i].mustWriteTo(&chs[i], sw)
+		cs[i].mustWriteTo(&chs[i], sw) // 写入每一列
 	}
 
-	csh.constColumns = append(csh.constColumns[:0], b.constColumns...)
+	csh.constColumns = append(csh.constColumns[:0], b.constColumns...) // 写入 const 列
 
 	csh.mustWriteTo(bh, sw)
 
@@ -540,32 +610,40 @@ func (b *block) appendRowsTo(dst *rows) {
 	dst.fieldsBuf = fieldsBuf
 }
 
-func areSameFieldsInRows(rows [][]Field) bool {
+// 在 block 的 benchmark 中，消耗 50% cpu
+func areSameFieldsInRows(rows [][]Field) bool { // 是否是 tag 完全相同的多个 row
 	if len(rows) < 2 {
 		return true
 	}
 	fields := rows[0]
 
-	// Verify that all the field names are unique
+	// Verify that all the field names are unique  // ??? 为什么只检查第 0 行
 	m := getFieldsSet()
-	for i := range fields {
+	for i := range fields { // 确保 tag name 都是唯一的
 		f := &fields[i]
 		if _, ok := m[f.Name]; ok {
 			// Field name isn't unique
 			return false
 		}
-		m[f.Name] = struct{}{}
+		m[f.Name] = struct{}{} // 按照 tag name 建立索引
 	}
 	putFieldsSet(m)
 
 	// Verify that all the fields are the same across rows
 	rows = rows[1:]
-	for i := range rows {
+	for i := range rows { // todo: 可以通过 simd 来快速比较所有的 string 的长度
 		leFields := rows[i]
-		if len(fields) != len(leFields) {
+		if len(fields) != len(leFields) { // 每一行都和第 0 行比较
 			return false
 		}
 		for j := range leFields {
+			// todo: 先快速比较长度
+			if len(leFields[j].Name) != len(fields[j].Name) {
+				return false
+			}
+		}
+		for j := range leFields {
+			// todo: 先快速比较长度
 			if leFields[j].Name != fields[j].Name {
 				return false
 			}
@@ -656,7 +734,7 @@ func putColumnsSorter(cs *columnsSorter) {
 
 var columnsSorterPool sync.Pool
 
-type constColumnsSorter struct {
+type constColumnsSorter struct { // 用于做 column 的排序
 	columns []Field
 }
 
@@ -670,7 +748,7 @@ func (ccs *constColumnsSorter) Len() int {
 
 func (ccs *constColumnsSorter) Less(i, j int) bool {
 	columns := ccs.columns
-	return columns[i].Name < columns[j].Name
+	return columns[i].Name < columns[j].Name // 按照 tag name 排序
 }
 
 func (ccs *constColumnsSorter) Swap(i, j int) {
@@ -693,11 +771,12 @@ func putConstColumnsSorter(ccs *constColumnsSorter) {
 
 var constColumnsSorterPool sync.Pool
 
-// mustWriteTimestampsTo writes timestamps to sw and updates th accordingly
+// mustWriteTimestampsTo writes timestamps to sw and updates th accordingly  // 序列化时间戳
 func mustWriteTimestampsTo(th *timestampsHeader, timestamps []int64, sw *streamWriters) {
 	th.reset()
 
 	bb := longTermBufPool.Get()
+	// 以序列化 int 数组的方式来序列化时间
 	bb.B, th.marshalType, th.minTimestamp = encoding.MarshalTimestamps(bb.B[:0], timestamps, 64)
 	if len(bb.B) > maxTimestampsBlockSize {
 		logger.Panicf("BUG: too big block with timestamps: %d bytes; the maximum supported size is %d bytes", len(bb.B), maxTimestampsBlockSize)
@@ -705,6 +784,6 @@ func mustWriteTimestampsTo(th *timestampsHeader, timestamps []int64, sw *streamW
 	th.maxTimestamp = timestamps[len(timestamps)-1]
 	th.blockOffset = sw.timestampsWriter.bytesWritten
 	th.blockSize = uint64(len(bb.B))
-	sw.timestampsWriter.MustWrite(bb.B)
+	sw.timestampsWriter.MustWrite(bb.B) // 把时间戳写入文件
 	longTermBufPool.Put(bb)
 }

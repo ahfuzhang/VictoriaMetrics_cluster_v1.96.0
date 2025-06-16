@@ -23,7 +23,7 @@ type inmemoryPart struct {
 	timestamps         chunkedbuffer.Buffer
 
 	messageBloomValues bloomValuesBuffer
-	fieldBloomValues   bloomValuesBuffer
+	fieldBloomValues   bloomValuesBuffer // 进行分词，然后写入 bitmap 中
 }
 
 type bloomValuesBuffer struct {
@@ -67,38 +67,39 @@ func (mp *inmemoryPart) reset() {
 }
 
 // mustInitFromRows initializes mp from lr.
-func (mp *inmemoryPart) mustInitFromRows(lr *logRows) {
+func (mp *inmemoryPart) mustInitFromRows(lr *logRows) { // 把内存中的多行日志，变成内存 part
 	mp.reset()
 
-	sort.Sort(lr)
-	lr.sortFieldsInRows()
+	sort.Sort(lr)         // 先按照 streamID 排序，再按照 timestamp 排序
+	lr.sortFieldsInRows() // 每一行中，再按照 tag name 排序
 
 	bsw := getBlockStreamWriter()
-	bsw.MustInitForInmemoryPart(mp)
+	bsw.MustInitForInmemoryPart(mp)  // 猜测： 这里决定了 block 是写内存还是写磁盘
 	trs := getTmpRows()
 	var sidPrev *streamID
 	uncompressedBlockSizeBytes := uint64(0)
 	timestamps := lr.timestamps
 	rows := lr.rows
 	streamIDs := lr.streamIDs
-	for i := range timestamps {
+	for i := range timestamps { // 遍历每行
 		streamID := &streamIDs[i]
 		if sidPrev == nil {
 			sidPrev = streamID
 		}
-
+		// 单个 streamID 的数据大于 1.75 mb， 序列化
+		// 产生了新的 streamID， 序列化
 		if uncompressedBlockSizeBytes >= maxUncompressedBlockSize || !streamID.equal(sidPrev) {
-			bsw.MustWriteRows(sidPrev, trs.timestamps, trs.rows)
+			bsw.MustWriteRows(sidPrev, trs.timestamps, trs.rows)  // 猜测：每调用一次，产生一个新的 block
 			trs.reset()
 			sidPrev = streamID
 			uncompressedBlockSizeBytes = 0
 		}
 		fields := rows[i]
-		trs.timestamps = append(trs.timestamps, timestamps[i])
+		trs.timestamps = append(trs.timestamps, timestamps[i]) // 对同一个 streamid 的汇聚
 		trs.rows = append(trs.rows, fields)
 		uncompressedBlockSizeBytes += uncompressedRowSizeBytes(fields)
 	}
-	bsw.MustWriteRows(sidPrev, trs.timestamps, trs.rows)
+	bsw.MustWriteRows(sidPrev, trs.timestamps, trs.rows) // rows 变成 block，然后写入到磁盘
 	putTmpRows(trs)
 
 	bsw.Finalize(&mp.ph)

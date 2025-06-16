@@ -59,7 +59,7 @@ func (ph *partHeader) String() string {
 		timestampToString(ph.MinTimestamp), timestampToString(ph.MaxTimestamp), ph.BloomValuesShardsCount)
 }
 
-func (ph *partHeader) mustReadMetadata(partPath string) {
+func (ph *partHeader) mustReadMetadata(partPath string) {  // 从路径读取 part header
 	ph.reset()
 
 	metadataPath := filepath.Join(partPath, metadataFilename)

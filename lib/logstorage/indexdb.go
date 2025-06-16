@@ -446,20 +446,20 @@ func (idb *indexdb) mustRegisterStream(streamID *streamID, streamTagsCanonical s
 	buf := bi.buf[:0]
 	items := bi.items[:0]
 
-	// Register tenantID:streamID entry.
+	// Register tenantID:streamID entry.  // streamID 的索引
 	bufLen := len(buf)
 	buf = marshalCommonPrefix(buf, nsPrefixStreamID, tenantID)
 	buf = streamID.id.marshal(buf)
 	items = append(items, buf[bufLen:])
 
-	// Register tenantID:streamID -> streamTagsCanonical entry.
+	// Register tenantID:streamID -> streamTagsCanonical entry.  // streamID 到所有 tag 的索引
 	bufLen = len(buf)
 	buf = marshalCommonPrefix(buf, nsPrefixStreamIDToStreamTags, tenantID)
 	buf = streamID.id.marshal(buf)
 	buf = append(buf, streamTagsCanonical...)
 	items = append(items, buf[bufLen:])
 
-	// Register tenantID:name:value -> streamIDs entries.
+	// Register tenantID:name:value -> streamIDs entries.  // tag name + tag value -> streamIDs 的索引
 	tags := st.tags
 	for i := range tags {
 		bufLen = len(buf)
@@ -471,7 +471,7 @@ func (idb *indexdb) mustRegisterStream(streamID *streamID, streamTagsCanonical s
 	PutStreamTags(st)
 
 	// Add items to the storage
-	idb.tb.AddItems(items)
+	idb.tb.AddItems(items) // 序列化后，往磁盘落地
 
 	bi.buf = buf
 	bi.items = items

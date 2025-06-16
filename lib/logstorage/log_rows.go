@@ -57,22 +57,23 @@ type LogRows struct {
 
 type logRows struct {
 	// a holds all the bytes referred by items in logRows
-	a arena
+	a arena // field name + field value 追加到这里
 
 	// fieldsBuf holds all the fields referred by items in logRows
-	fieldsBuf []Field
+	fieldsBuf []Field // 所有的存在的列
 
 	// streamIDs holds streamIDs for rows added to logRows
-	streamIDs []streamID
+	streamIDs []streamID // n 条日志就有 n 个 streamID
 
 	// timestamps holds stimestamps for rows added to logRows
 	timestamps []int64
 
 	// rows holds fields for rows added to logRows.
-	rows [][]Field
+	rows [][]Field // 每条日志是一个 []Field 数组  // n 条日志就有 n 个 []Field
+	// 多条日志可以看成锯齿形数组
 
 	// sf is a helper for sorting fields in every added row
-	sf sortedFields
+	sf sortedFields // 所有的 field 会按照名字排序
 }
 
 func (lr *logRows) reset() {
@@ -100,10 +101,10 @@ func (lr *logRows) reset() {
 
 // needFlush returns true if lr contains too much data, so it must be flushed to the storage.
 func (lr *logRows) needFlush() bool {
-	return len(lr.a.b) > (maxUncompressedBlockSize/8)*7
+	return len(lr.a.b) > (maxUncompressedBlockSize/8)*7 // 总字节数是否大于 1.75MB
 }
 
-func (lr *logRows) mustAddRows(src *LogRows) {
+func (lr *logRows) mustAddRows(src *LogRows) { // 把 data 数据，加入内存的 shard 中
 	streamIDs := src.streamIDs
 	timestamps := src.timestamps
 	rows := src.rows
@@ -121,18 +122,18 @@ func (lr *logRows) mustAddRows(src *LogRows) {
 	}
 }
 
-func (lr *logRows) mustAddRow(streamID streamID, timestamp int64, fields []Field) {
+func (lr *logRows) mustAddRow(streamID streamID, timestamp int64, fields []Field) { // 追加一行日志
 	lr.streamIDs = append(lr.streamIDs, streamID)
 	lr.timestamps = append(lr.timestamps, timestamp)
 
-	fieldsBuf := lr.fieldsBuf
-	fieldsBufLen := len(fieldsBuf)
+	fieldsBuf := lr.fieldsBuf      // 内部的数组
+	fieldsBufLen := len(fieldsBuf) // 原来的长度
 	fieldsBuf = slicesutil.SetLength(fieldsBuf, fieldsBufLen+len(fields))
-	dstFields := fieldsBuf[fieldsBufLen:]
-	lr.fieldsBuf = fieldsBuf
-	lr.rows = append(lr.rows, dstFields)
+	dstFields := fieldsBuf[fieldsBufLen:] // 猜测是用来放新增的 field
+	lr.fieldsBuf = fieldsBuf              // 扩容后，写回去
+	lr.rows = append(lr.rows, dstFields)  // 增加了一行
 
-	for i := range fields {
+	for i := range fields { // 逐个 tag 处理
 		f := &fields[i]
 
 		fieldName := getCanonicalFieldName(f.Name)
@@ -146,7 +147,7 @@ func (lr *logRows) mustAddRow(streamID streamID, timestamp int64, fields []Field
 				dstField.Name = lr.a.copyString(fieldName)
 			}
 			if fPrev.Value == f.Value {
-				dstField.Value = fPrev.Value
+				dstField.Value = fPrev.Value // 如果是老 value
 			} else {
 				dstField.Value = lr.a.copyString(f.Value)
 			}
@@ -158,7 +159,7 @@ func (lr *logRows) mustAddRow(streamID streamID, timestamp int64, fields []Field
 }
 
 // Len returns the number of items in lr.
-func (lr *logRows) Len() int {
+func (lr *logRows) Len() int { // 日志的行数
 	return len(lr.streamIDs)
 }
 
@@ -173,7 +174,7 @@ func (lr *logRows) Less(i, j int) bool {
 }
 
 // Swap swaps rows i and j in lr.
-func (lr *logRows) Swap(i, j int) {
+func (lr *logRows) Swap(i, j int) { // 排序的时候，竞技场中的数据不变，仅 streamid, timestamp 和 []fields 变换了
 	a := &lr.streamIDs[i]
 	b := &lr.streamIDs[j]
 	*a, *b = *b, *a
@@ -188,7 +189,8 @@ func (lr *logRows) Swap(i, j int) {
 func (lr *logRows) sortFieldsInRows() {
 	for _, row := range lr.rows {
 		lr.sf = row
-		sort.Sort(&lr.sf)
+		sort.Sort(&lr.sf) // 遍历每行日志，对每列的字段名进行排序
+		// 使用指针，因此排序完成后，会写回去
 	}
 }
 
@@ -205,7 +207,7 @@ func (sf *sortedFields) Less(i, j int) bool {
 
 func (sf *sortedFields) Swap(i, j int) {
 	a := *sf
-	a[i], a[j] = a[j], a[i]
+	a[i], a[j] = a[j], a[i] // 按照 field 的名字来排序
 }
 
 func getLogRows() *logRows {
@@ -223,20 +225,21 @@ func putLogRows(lr *logRows) {
 
 var lrPool sync.Pool
 
-// ForEachRow calls callback for every row stored in the lr.
+// ForEachRow calls callback for every row stored in the lr.  // 这个是群集版中，用于转发日志的功能
 func (lr *LogRows) ForEachRow(callback func(streamHash uint64, r *InsertRow)) {
 	r := GetInsertRow()
-	for i, timestamp := range lr.timestamps {
+	for i, timestamp := range lr.timestamps {  // 一般没有本地的 storage 对象时走到此处
 		sid := &lr.streamIDs[i]
 
 		streamHash := sid.id.lo ^ sid.id.hi
 
 		r.TenantID = sid.tenantID
 		r.StreamTagsCanonical = lr.streamTagsCanonicals[i]
+		// canonical 最简洁的
 		r.Timestamp = timestamp
 		r.Fields = lr.rows[i]
 
-		callback(streamHash, r)
+		callback(streamHash, r) // 群集版， vlinsert 只能做镜像复制吗？
 	}
 	PutInsertRow(r)
 }
@@ -290,7 +293,7 @@ func (lr *LogRows) ResetKeepSettings() {
 
 // NeedFlush returns true if lr contains too much data, so it must be flushed to the storage.
 func (lr *LogRows) NeedFlush() bool {
-	return len(lr.a.b) > (maxUncompressedBlockSize/8)*7
+	return len(lr.a.b) > (maxUncompressedBlockSize/8)*7  // 1.75mb
 }
 
 // MustAddInsertRow adds r to lr.
@@ -397,6 +400,7 @@ func (lr *LogRows) MustAdd(tenantID TenantID, timestamp int64, fields, streamFie
 	bbPool.Put(bb)
 }
 
+// 追加数据到内存的 row
 func (lr *LogRows) mustAddInternal(sid streamID, timestamp int64, fields []Field, streamTagsCanonical string) {
 	stcs := lr.streamTagsCanonicals
 	if len(stcs) > 0 && string(stcs[len(stcs)-1]) == streamTagsCanonical {
@@ -669,8 +673,8 @@ func (r *InsertRow) Marshal(dst []byte) []byte {
 func (r *InsertRow) UnmarshalInplace(src []byte) ([]byte, error) {
 	srcOrig := src
 
-	tail, err := r.TenantID.unmarshal(src)
-	if err != nil {
+	tail, err := r.TenantID.unmarshal(src)  // 为什么这里是二进制格式 ???
+	if err != nil {  // 看来在 vlinsert 上，已经处理过一次了，所以是二进制格式
 		return srcOrig, fmt.Errorf("cannot unmarshal tenantID: %w", err)
 	}
 	src = tail

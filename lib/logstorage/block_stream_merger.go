@@ -9,6 +9,7 @@ import (
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/logger"
 )
 
+// 猜测是：用火山模型逐条读取数据，然后放到 writer 中去
 // mustMergeBlockStreams merges bsrs to bsw and updates ph accordingly.
 //
 // Finalize() is guaranteed to be called on bsrs and bsw before returning from the func.

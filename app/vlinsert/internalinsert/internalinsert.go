@@ -35,7 +35,7 @@ func RequestHandler(w http.ResponseWriter, r *http.Request) {
 
 	requestsTotal.Inc()
 
-	cp, err := insertutil.GetCommonParams(r)
+	cp, err := insertutil.GetCommonParams(r)  // 解析 querystring 中的参数
 	if err != nil {
 		httpserver.Errorf(w, r, "%s", err)
 		return
@@ -47,7 +47,7 @@ func RequestHandler(w http.ResponseWriter, r *http.Request) {
 
 	encoding := r.Header.Get("Content-Encoding")
 	err = protoparserutil.ReadUncompressedData(r.Body, encoding, maxRequestSize, func(data []byte) error {
-		lmp := cp.NewLogMessageProcessor("internalinsert", false)
+		lmp := cp.NewLogMessageProcessor("internalinsert", false)  // false 说明不是流模式
 		irp := lmp.(insertutil.InsertRowProcessor)
 		err := parseData(irp, data)
 		lmp.MustClose()
@@ -67,7 +67,7 @@ func parseData(irp insertutil.InsertRowProcessor, data []byte) error {
 	src := data
 	i := 0
 	for len(src) > 0 {
-		tail, err := r.UnmarshalInplace(src)
+		tail, err := r.UnmarshalInplace(src)  // 来自 vlinsert 的数据是二进制格式
 		if err != nil {
 			return fmt.Errorf("cannot parse row #%d: %s", i, err)
 		}

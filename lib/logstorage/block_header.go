@@ -422,6 +422,7 @@ func (csh *columnsHeader) setColumnNames(cshIndex *columnsHeaderIndex, columnNam
 	return nil
 }
 
+// 序列化列头
 func (csh *columnsHeader) mustWriteTo(bh *blockHeader, sw *streamWriters) {
 	bb := longTermBufPool.Get()
 	defer longTermBufPool.Put(bb)
@@ -581,7 +582,7 @@ func getNamesFromColumnHeaders(chs []columnHeader) []string {
 // Bloom filters for main column with an empty name is stored in messageBloomFilename,
 // while the rest of columns are stored in smallBloomFilename or bigBloomFilename depending on their size
 // (see maxSmallBloomFilterBlockSize).
-type columnHeader struct {
+type columnHeader struct {  // 列的头信息
 	// name contains column name aka label name
 	name string
 

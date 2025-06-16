@@ -105,7 +105,10 @@ func (ve *valuesEncoder) reset() {
 
 // encode encodes values to ve.values and returns the encoded value type with min/max encoded values.
 //
-// ve.values and dict is valid until values are changed.
+// ve.values and dict is valid until values are changed.  // 序列化多个 value
+// 这里传入一个列的信息
+// 通过大量的算力，找到这一列最优的存储方式
+// todo: 这里值得用 simd 好好优化
 func (ve *valuesEncoder) encode(values []string, dict *valuesDict) (valueType, uint64, uint64) {
 	ve.reset()
 
@@ -122,7 +125,8 @@ func (ve *valuesEncoder) encode(values []string, dict *valuesDict) (valueType, u
 	if vt != valueTypeUnknown {
 		return vt, 0, 0
 	}
-
+	// todo: 值得使用 simd 来优化整数转换
+	// todo: 把所有字符串排列到这里，扫描所有的 0-9 和 _  发现字符集以外的内容，马上返回 false。这样可以快速跳过这一步
 	ve.buf, ve.values, vt, minValue, maxValue = tryUintEncoding(ve.buf[:0], ve.values[:0], values)
 	if vt != valueTypeUnknown {
 		return vt, minValue, maxValue
@@ -560,7 +564,7 @@ func tryParseUint64(s string) (uint64, bool) {
 	}
 
 	n := uint64(0)
-	for i := 0; i < len(s); i++ {
+	for i := 0; i < len(s); i++ { // todo: 字符串解析，没有更快的方法了吗？
 		ch := s[i]
 		if ch == '_' {
 			continue
@@ -1167,7 +1171,7 @@ func tryUintEncoding(dstBuf []byte, dstValues, srcValues []string) ([]byte, []st
 	defer encoding.PutUint64s(u64s)
 	a := u64s.A
 	var minValue, maxValue uint64
-	for i, v := range srcValues {
+	for i, v := range srcValues { // todo: 这里可以使用 simd 来优化吗?
 		n, ok := tryParseUint64(v)
 		if !ok {
 			return dstBuf, dstValues, valueTypeUnknown, 0, 0
@@ -1185,7 +1189,7 @@ func tryUintEncoding(dstBuf []byte, dstValues, srcValues []string) ([]byte, []st
 	if minBitSize <= 8 {
 		for _, n := range a {
 			dstLen := len(dstBuf)
-			dstBuf = append(dstBuf, byte(n))
+			dstBuf = append(dstBuf, byte(n)) // 数值小于 256，则用 1 字节存储就行了
 			v := bytesutil.ToUnsafeString(dstBuf[dstLen:])
 			dstValues = append(dstValues, v)
 		}
@@ -1218,27 +1222,28 @@ func tryUintEncoding(dstBuf []byte, dstValues, srcValues []string) ([]byte, []st
 	return dstBuf, dstValues, valueTypeUint64, minValue, maxValue
 }
 
+// 尝试：是不是所有的 value 都存在于字典中
 func tryDictEncoding(dstBuf []byte, dstValues, srcValues []string, dict *valuesDict) ([]byte, []string, valueType) {
 	dict.reset()
 	dstBufOrig := dstBuf
 	dstValuesOrig := dstValues
 
 	for _, v := range srcValues {
-		id, ok := dict.getOrAdd(v)
-		if !ok {
-			dict.reset()
+		id, ok := dict.getOrAdd(v) // 加入到字典中  // id 只能是 0-7
+		if !ok {                   // 字典的长度超过 256，就不按照字典来存放了。因为正好用 1 字节的下标来表示数据
+			dict.reset() // 清空存储的所有 value
 			return dstBufOrig, dstValuesOrig, valueTypeUnknown
 		}
 		dstLen := len(dstBuf)
 		dstBuf = append(dstBuf, id)
 		v := bytesutil.ToUnsafeString(dstBuf[dstLen:])
-		dstValues = append(dstValues, v)
+		dstValues = append(dstValues, v) // 用下标来替换具体的字符串
 	}
 	return dstBuf, dstValues, valueTypeDict
 }
 
 type valuesDict struct {
-	values []string
+	values []string // 所有存在过的字典
 }
 
 func (vd *valuesDict) reset() {
@@ -1262,22 +1267,24 @@ func (vd *valuesDict) copyFromNoArena(src *valuesDict) {
 	vd.values = append(vd.values[:0], src.values...)
 }
 
+// 输入 tag value 的值，尝试能不能用字典的方式来存储
 func (vd *valuesDict) getOrAdd(k string) (byte, bool) {
 	if len(k) > maxDictSizeBytes {
 		return 0, false
 	}
 	vs := vd.values
 	dictSizeBytes := 0
-	for i, v := range vs {
+	for i, v := range vs { // todo: 这里用遍历不会太慢了吗?
 		if k == v {
-			return byte(i), true
+			return byte(i), true // 返回在字典中的下标
 		}
 		dictSizeBytes += len(v)
 	}
 	if len(vs) >= maxDictLen || dictSizeBytes+len(k) > maxDictSizeBytes {
+		// todo: 这些常量值好没道理。感觉字典实在太小了
 		return 0, false
 	}
-	vs = append(vs, k)
+	vs = append(vs, k) // 查找一次后，把当前的 key 加入字典之中
 	vd.values = vs
 
 	return byte(len(vs) - 1), true

@@ -498,7 +498,7 @@ func ProcessLiveTailRequest(ctx context.Context, w http.ResponseWriter, r *http.
 	liveTailRequests.Inc()
 	defer liveTailRequests.Dec()
 
-	q, tenantIDs, err := parseCommonArgs(r)
+	q, tenantIDs, err := parseCommonArgs(r)  // 解析查询参数
 	if err != nil {
 		httpserver.Errorf(w, r, "%s", err)
 		return
@@ -531,7 +531,7 @@ func ProcessLiveTailRequest(ctx context.Context, w http.ResponseWriter, r *http.
 	offset := offsetMsecs * 1e6
 
 	ctxWithCancel, cancel := context.WithCancel(ctx)
-	tp := newTailProcessor(cancel)
+	tp := newTailProcessor(cancel)  // 猜测是用来写入结果数据的
 
 	ticker := time.NewTicker(refreshInterval)
 	defer ticker.Stop()

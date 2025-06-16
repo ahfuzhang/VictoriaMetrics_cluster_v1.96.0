@@ -19,14 +19,14 @@ func marshalStringsBlock(dst []byte, a []string) []byte {
 	aLens := u64s.A
 	totalLen := 0
 	for i, s := range a {
-		aLens[i] = uint64(len(s))
+		aLens[i] = uint64(len(s))  // 所有的长度，先放一个数组里
 		totalLen += len(s)
 	}
-	dst = marshalUint64Block(dst, aLens)
+	dst = marshalUint64Block(dst, aLens)  // 写入了所有的长度信息
 	encoding.PutUint64s(u64s)
 
 	// Encode strings
-	if areConstValues(a) {
+	if areConstValues(a) {  // todo: simd 优化
 		// Special case for const values
 		dst = marshalBytesBlock(dst, bytesutil.ToUnsafeBytes(a[0]))
 	} else {
@@ -38,9 +38,9 @@ func marshalStringsBlock(dst []byte, a []string) []byte {
 
 		b = b[:0]
 		for _, s := range a {
-			b = append(b, s...)
+			b = append(b, s...)  // 如果所有的字符串都连续存放，那么字符串的长度只能存另一个地方了
 		}
-		dst = marshalBytesBlock(dst, b)
+		dst = marshalBytesBlock(dst, b)  // 序列化头部，并且使用 zstd 压缩
 
 		bb.B = b
 		bbPool.Put(bb)
@@ -132,7 +132,7 @@ func (sbu *stringsBlockUnmarshaler) unmarshal(dst []string, src []byte, itemsCou
 	return dst, nil
 }
 
-func areConstUint64s(a []uint64) bool {
+func areConstUint64s(a []uint64) bool {  // todo: simd 优化
 	if len(a) == 0 {
 		return false
 	}
@@ -193,7 +193,7 @@ func marshalUint64Items(dst []byte, a []uint64) []byte {
 	nMax := uint64(0)
 	for _, n := range a {
 		if n > nMax {
-			nMax = n
+			nMax = n  // 找到数字中的最大长度
 		}
 	}
 	areConsts := len(a) >= 2 && areConstUint64s(a)

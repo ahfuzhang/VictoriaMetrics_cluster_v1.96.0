@@ -31,6 +31,7 @@ func (t *tokenizer) reset() {
 	clear(t.m)
 }
 
+// 这个函数消耗了整体 15 % 的 cpu
 func (t *tokenizer) tokenizeString(dst []string, s string, keepDuplicateTokens bool) []string {
 	if !isASCII(s) {
 		// Slow path - s contains unicode chars

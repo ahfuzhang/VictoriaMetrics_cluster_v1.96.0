@@ -20,14 +20,14 @@ type cache struct {
 
 func newCache() *cache {
 	var c cache
-	c.curr.Store(&sync.Map{})
+	c.curr.Store(&sync.Map{}) // 为了方便索引切换，所以做成这样
 	c.prev.Store(&sync.Map{})
 
 	c.stopCh = make(chan struct{})
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
-		c.runCleaner()
+		c.runCleaner() // 在协程内定期清理
 	}()
 	return &c
 }
@@ -37,37 +37,37 @@ func (c *cache) MustStop() {
 	c.wg.Wait()
 }
 
-func (c *cache) runCleaner() {
-	d := timeutil.AddJitterToDuration(3 * time.Minute)
+func (c *cache) runCleaner() { // 在协程内定期清理
+	d := timeutil.AddJitterToDuration(3 * time.Minute) // 产生一个 3 分钟左右的随机间隔
 	t := time.NewTicker(d)
 	defer t.Stop()
 	for {
 		select {
 		case <-t.C:
-			c.clean()
+			c.clean() // 三分钟清理一次
 		case <-c.stopCh:
 			return
 		}
 	}
 }
 
-func (c *cache) clean() {
+func (c *cache) clean() { // 3 分钟清理一次
 	curr := c.curr.Load()
 	c.prev.Store(curr)
-	c.curr.Store(&sync.Map{})
+	c.curr.Store(&sync.Map{}) // 为什么 3 分钟就要丢弃一次索引?
 }
 
 func (c *cache) Get(k []byte) (any, bool) {
 	kStr := bytesutil.ToUnsafeString(k)
 
 	curr := c.curr.Load()
-	v, ok := curr.Load(kStr)
+	v, ok := curr.Load(kStr) // 先在当前索引找
 	if ok {
 		return v, true
 	}
 
 	prev := c.prev.Load()
-	v, ok = prev.Load(kStr)
+	v, ok = prev.Load(kStr) // 找不到就去前一个索引找  // 所以索引有效时间为 6 分钟
 	if ok {
 		kStr = strings.Clone(kStr)
 		curr.Store(kStr, v)

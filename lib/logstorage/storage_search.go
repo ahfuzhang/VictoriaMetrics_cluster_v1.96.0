@@ -129,7 +129,7 @@ func (s *Storage) runQuery(ctx context.Context, tenantIDs []TenantID, q *Query, 
 		fieldsFilter: fieldsFilter,
 	}
 
-	workersCount := q.GetConcurrency()
+	workersCount := q.GetConcurrency()  // 限制查询并发数
 
 	search := func(stopCh <-chan struct{}, writeBlockToPipes writeBlockResultFunc) error {
 		s.search(workersCount, so, stopCh, writeBlockToPipes)

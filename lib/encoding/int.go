@@ -107,7 +107,7 @@ func MarshalVarInt64(dst []byte, v int64) []byte {
 func MarshalVarInt64s(dst []byte, vs []int64) []byte {
 	dstLen := len(dst)
 	for _, v := range vs {
-		if v >= (1<<6) || v <= (-1<<6) {
+		if v >= (1<<6) || v <= (-1<<6) { // 这个代码说明，绝大多数数值都不在这个区间
 			return marshalVarInt64sSlow(dst[:dstLen], vs)
 		}
 		u := uint64((v << 1) ^ (v >> 63))

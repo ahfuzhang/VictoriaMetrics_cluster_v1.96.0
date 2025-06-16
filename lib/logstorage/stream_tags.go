@@ -114,7 +114,7 @@ func (st *StreamTags) MarshalCanonical(dst []byte) []byte {
 }
 
 // UnmarshalCanonical unmarshals st from src marshaled with MarshalCanonical.
-func (st *StreamTags) UnmarshalCanonical(src []byte) ([]byte, error) {
+func (st *StreamTags) UnmarshalCanonical(src []byte) ([]byte, error) {  // 解析 stream tag
 	st.Reset()
 
 	srcOrig := src

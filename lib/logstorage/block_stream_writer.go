@@ -52,14 +52,14 @@ type streamWriters struct {
 	columnsHeaderWriter      writerWithStats
 	timestampsWriter         writerWithStats
 
-	messageBloomValuesWriter bloomValuesWriter
+	messageBloomValuesWriter bloomValuesWriter // 专门用于 _msg 字段
 
-	bloomValuesShards       []bloomValuesWriter
+	bloomValuesShards       []bloomValuesWriter // ???? 这里的分片是为了什么
 	createBloomValuesWriter func(shardIdx uint64) bloomValuesStreamWriter
 	maxShards               uint64
 
 	// columnNameIDGenerator is used for generating columnName->id mapping for all the columns seen in bsw
-	columnNameIDGenerator columnNameIDGenerator
+	columnNameIDGenerator columnNameIDGenerator // 存储列名，和列id 的对应关系
 
 	columnIdxs    map[uint64]uint64
 	nextColumnIdx uint64
@@ -171,13 +171,14 @@ func (sw *streamWriters) MustClose() {
 
 func (sw *streamWriters) getBloomValuesWriterForColumnName(name string) *bloomValuesWriter {
 	if name == "" {
+		// tag 的列，和 _msg 的列，是不同的
 		return &sw.messageBloomValuesWriter
 	}
 
 	columnID := sw.columnNameIDGenerator.getColumnNameID(name)
 	shardIdx, ok := sw.columnIdxs[columnID]
 	if ok {
-		return &sw.bloomValuesShards[shardIdx]
+		return &sw.bloomValuesShards[shardIdx] //??? 这里分片是为了什么
 	}
 
 	shardIdx = sw.nextColumnIdx % sw.maxShards
@@ -351,8 +352,8 @@ func (bsw *blockStreamWriter) MustWriteRows(sid *streamID, timestamps []int64, r
 	}
 
 	b := getBlock()
-	b.MustInitFromRows(timestamps, rows)
-	bsw.MustWriteBlock(sid, b)
+	b.MustInitFromRows(timestamps, rows) // rows 应该是来自内存中积累的 row  // 计算出普通列和 const 列
+	bsw.MustWriteBlock(sid, b)           // 数据序列化到磁盘(blockStreamWriter)
 	putBlock(b)
 }
 
@@ -363,6 +364,7 @@ func (bsw *blockStreamWriter) MustWriteBlockData(bd *blockData) {
 	if bd.rowsCount == 0 {
 		return
 	}
+	// streamID 来自 logRows，猜测是 stream field 计算得到的 hash 值
 	bsw.mustWriteBlockInternal(&bd.streamID, nil, bd)
 }
 
@@ -392,8 +394,10 @@ func (bsw *blockStreamWriter) mustWriteBlockInternal(sid *streamID, b *block, bd
 
 	bh := getBlockHeader()
 	if b != nil {
+		// 如果传入了 block，走这里
 		b.mustWriteTo(sid, bh, &bsw.streamWriters)
 	} else {
+		// 否则使用 blockData 来写入
 		bd.mustWriteTo(bh, &bsw.streamWriters)
 	}
 

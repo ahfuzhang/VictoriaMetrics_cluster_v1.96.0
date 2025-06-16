@@ -166,7 +166,7 @@ func (g *columnNameIDGenerator) reset() {
 	g.columnNames = nil
 }
 
-func (g *columnNameIDGenerator) getColumnNameID(name string) uint64 {
+func (g *columnNameIDGenerator) getColumnNameID(name string) uint64 {  // 产生一个列 id
 	id, ok := g.columnNameIDs[name]
 	if ok {
 		return id

@@ -26,7 +26,7 @@ func (r *readerWithStats) reset() {
 func (r *readerWithStats) init(rc filestream.ReadCloser) {
 	r.reset()
 
-	r.r = rc
+	r.r = rc  // 文件对象的赋值
 }
 
 // Path returns the path to r file
@@ -328,14 +328,14 @@ func (bsr *blockStreamReader) MustInitFromInmemoryPart(mp *inmemoryPart) {
 }
 
 // MustInitFromFilePart initializes bsr from file part at the given path.
-func (bsr *blockStreamReader) MustInitFromFilePart(path string) {
+func (bsr *blockStreamReader) MustInitFromFilePart(path string) {  // 从目录中加载 part
 	bsr.reset()
 
 	// Files in the part are always read without OS cache pollution,
 	// since they are usually deleted after the merge.
 	const nocache = true
 
-	bsr.ph.mustReadMetadata(path)
+	bsr.ph.mustReadMetadata(path)  // part header
 
 	columnNamesPath := filepath.Join(path, columnNamesFilename)
 	columnIdxsPath := filepath.Join(path, columnIdxsFilename)
@@ -344,7 +344,7 @@ func (bsr *blockStreamReader) MustInitFromFilePart(path string) {
 	columnsHeaderIndexPath := filepath.Join(path, columnsHeaderIndexFilename)
 	columnsHeaderPath := filepath.Join(path, columnsHeaderFilename)
 	timestampsPath := filepath.Join(path, timestampsFilename)
-
+	// 到这里，加载了 8 种文件
 	// Open data readers
 	var columnNamesReader filestream.ReadCloser
 	if bsr.ph.FormatVersion >= 1 {

@@ -155,19 +155,19 @@ type LogMessageProcessor interface {
 }
 
 type logMessageProcessor struct {
-	mu            sync.Mutex
+	mu            sync.Mutex  //??? 为什么要加锁  // 有流模式，会创建独立协程
 	wg            sync.WaitGroup
 	stopCh        chan struct{}
 	lastFlushTime time.Time
 
 	cp *CommonParams
-	lr *logstorage.LogRows
+	lr *logstorage.LogRows  // 存储一次请求中解析好的 row
 
 	rowsIngestedTotal  *metrics.Counter
 	bytesIngestedTotal *metrics.Counter
 }
 
-func (lmp *logMessageProcessor) initPeriodicFlush() {
+func (lmp *logMessageProcessor) initPeriodicFlush() {  // 初始化为流模式
 	lmp.lastFlushTime = time.Now()
 
 	lmp.wg.Add(1)
@@ -220,7 +220,7 @@ func (lmp *logMessageProcessor) AddRow(timestamp int64, fields, streamFields []l
 		rowsDroppedTotalDebug.Inc()
 		return
 	}
-	if lmp.lr.NeedFlush() {
+	if lmp.lr.NeedFlush() {  // 超过 1.75mb 了 就 flush
 		lmp.flushLocked()
 	}
 }
@@ -234,17 +234,17 @@ type InsertRowProcessor interface {
 // AddInsertRow adds r to lmp.
 func (lmp *logMessageProcessor) AddInsertRow(r *logstorage.InsertRow) {
 	lmp.rowsIngestedTotal.Inc()
-	n := logstorage.EstimatedJSONRowLen(r.Fields)
+	n := logstorage.EstimatedJSONRowLen(r.Fields)  // 猜测 json 字符串的长度
 	lmp.bytesIngestedTotal.Add(n)
 
-	if len(r.Fields) > *MaxFieldsPerLine {
+	if len(r.Fields) > *MaxFieldsPerLine {  // 默认最多 1000 个字段
 		line := logstorage.MarshalFieldsToJSON(nil, r.Fields)
 		logger.Warnf("dropping log line with %d fields; it exceeds -insert.maxFieldsPerLine=%d; %s", len(r.Fields), *MaxFieldsPerLine, line)
 		rowsDroppedTotalTooManyFields.Inc()
 		return
 	}
 
-	lmp.mu.Lock()
+	lmp.mu.Lock()  //??? 为什么要加锁
 	defer lmp.mu.Unlock()
 
 	lmp.lr.MustAddInsertRow(r)
@@ -287,7 +287,7 @@ func (cp *CommonParams) NewLogMessageProcessor(protocolName string, isStreamMode
 	bytesIngestedTotal := metrics.GetOrCreateCounter(fmt.Sprintf("vl_bytes_ingested_total{type=%q}", protocolName))
 	lmp := &logMessageProcessor{
 		cp: cp,
-		lr: lr,
+		lr: lr,  // 请求中过来的包，不管有多大，一定是放在内存中的
 
 		rowsIngestedTotal:  rowsIngestedTotal,
 		bytesIngestedTotal: bytesIngestedTotal,
@@ -296,7 +296,7 @@ func (cp *CommonParams) NewLogMessageProcessor(protocolName string, isStreamMode
 	}
 
 	if isStreamMode {
-		lmp.initPeriodicFlush()
+		lmp.initPeriodicFlush()  // 流模式，在这里创建协程
 	}
 
 	return lmp

@@ -120,11 +120,11 @@ func marshalInt64Array(dst []byte, a []int64, precisionBits uint8) (result []byt
 	if len(a) == 0 {
 		logger.Panicf("BUG: a must contain at least one item")
 	}
-	if isConst(a) {
+	if isConst(a) { // todo: simd 优化
 		firstValue = a[0]
 		return dst, MarshalTypeConst, firstValue
 	}
-	if isDeltaConst(a) {
+	if isDeltaConst(a) {  // todo: simd 优化
 		firstValue = a[0]
 		dst = MarshalVarInt64(dst, a[1]-a[0])
 		return dst, MarshalTypeDeltaConst, firstValue
@@ -286,7 +286,7 @@ func EnsureNonDecreasingSequence(a []int64, vMin, vMax int64) {
 }
 
 // isConst returns true if a contains only equal values.
-func isConst(a []int64) bool {
+func isConst(a []int64) bool { // todo: 做一个 simd 版本
 	if len(a) == 0 {
 		return false
 	}
@@ -307,6 +307,46 @@ func isConst(a []int64) bool {
 	return true
 }
 
+/*
+simd 优化
+#include <immintrin.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <stdbool.h>
+
+bool isDeltaConst_avx2(const int64_t *a, size_t n) {
+    if (n < 2) {
+        return false;
+    }
+
+    int64_t d1 = a[1] - a[0];
+
+    __m256i d1_vec = _mm256_set1_epi64x(d1);
+
+    size_t i = 0;
+    size_t limit = n - 4;
+
+    for (; i < limit; i += 4) {
+        __m256i curr = _mm256_loadu_si256((__m256i const *)(a + i));
+        __m256i next = _mm256_loadu_si256((__m256i const *)(a + i + 1));
+        __m256i diff = _mm256_sub_epi64(next, curr);
+        __m256i cmp = _mm256_cmpeq_epi64(diff, d1_vec);
+
+        if (_mm256_movemask_epi8(cmp) != -1) {
+            return false;
+        }
+    }
+
+    // 处理剩余部分
+    for (; i < n - 1; i++) {
+        if (a[i+1] - a[i] != d1) {
+            return false;
+        }
+    }
+
+    return true;
+}
+*/
 // isDeltaConst returns true if a contains counter with constant delta.
 func isDeltaConst(a []int64) bool {
 	if len(a) < 2 {

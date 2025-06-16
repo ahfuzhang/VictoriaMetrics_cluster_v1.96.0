@@ -12,7 +12,7 @@ import (
 
 type blockHeader struct {
 	// common prefix for all the items in the block.
-	commonPrefix []byte
+	commonPrefix []byte // 整个 block 的公共前缀
 
 	// The first item.
 	firstItem []byte

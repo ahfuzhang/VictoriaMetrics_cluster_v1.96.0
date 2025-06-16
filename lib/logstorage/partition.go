@@ -130,7 +130,7 @@ func (pt *partition) mustAddRows(lr *LogRows) {
 			pendingRows = append(pendingRows, i)
 		}
 	}
-	if len(pendingRows) > 0 {
+	if len(pendingRows) > 0 {  // 处理新增的 streamID
 		logNewStreams := pt.s.logNewStreams
 		streamTagsCanonicals := lr.streamTagsCanonicals
 		sort.Slice(pendingRows, func(i, j int) bool {
@@ -146,7 +146,7 @@ func (pt *partition) mustAddRows(lr *LogRows) {
 			}
 			if !pt.idb.hasStreamID(streamID) {
 				streamTagsCanonical := streamTagsCanonicals[rowIdx]
-				pt.idb.mustRegisterStream(streamID, streamTagsCanonical)
+				pt.idb.mustRegisterStream(streamID, streamTagsCanonical) // 写入索引
 				if logNewStreams {
 					pt.logNewStream(streamTagsCanonical, lr.rows[rowIdx])
 				}
@@ -156,7 +156,7 @@ func (pt *partition) mustAddRows(lr *LogRows) {
 	}
 
 	// Add rows to datadb
-	pt.ddb.mustAddRows(lr)
+	pt.ddb.mustAddRows(lr)  // 写入数据部分
 	if pt.s.logIngestedRows {
 		pt.logIngestedRows(lr)
 	}
@@ -209,6 +209,6 @@ func (pt *partition) updateStats(ps *PartitionStats) {
 }
 
 // mustForceMerge runs forced merge for all the parts in pt.
-func (pt *partition) mustForceMerge() {
+func (pt *partition) mustForceMerge() {  // 合并数据分区
 	pt.ddb.mustForceMergeAllParts()
 }

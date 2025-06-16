@@ -72,7 +72,7 @@ func (bm *bitmap) setBits() {
 }
 
 func (bm *bitmap) isZero() bool {
-	for _, word := range bm.a {
+	for _, word := range bm.a {  // todo: use simd
 		if word != 0 {
 			return false
 		}
@@ -185,7 +185,7 @@ func (bm *bitmap) forEachSetBitReadonly(f func(idx int)) {
 func (bm *bitmap) onesCount() int {
 	n := 0
 	for _, word := range bm.a {
-		n += bits.OnesCount64(word)
+		n += bits.OnesCount64(word) //todo: 循环展开
 	}
 	return n
 }

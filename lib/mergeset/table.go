@@ -162,13 +162,14 @@ func (riss *rawItemsShards) init() {
 	riss.shards = make([]rawItemsShard, rawItemsShardsPerTable)
 }
 
+// 写入序列化后的索引
 func (riss *rawItemsShards) addItems(tb *Table, items [][]byte) {
 	shards := riss.shards
 	shardsLen := uint32(len(shards))
 	for len(items) > 0 {
 		n := riss.shardIdx.Add(1)
 		idx := n % shardsLen
-		tailItems, ibsToFlush := shards[idx].addItems(items)
+		tailItems, ibsToFlush := shards[idx].addItems(items)  // 分片写入
 		riss.addIbsToFlush(tb, ibsToFlush)
 		items = tailItems
 	}
@@ -875,7 +876,7 @@ func (tb *Table) flushBlocksToInmemoryParts(ibs []*inmemoryBlock, isFinal bool) 
 		}(ibs[:n])
 		ibs = ibs[n:]
 	}
-	wg.Wait()
+	wg.Wait()  // 既然这里要 wait，那么阻塞完成是一样的效果
 	putWaitGroup(wg)
 
 	// Merge pws into a single in-memory part.

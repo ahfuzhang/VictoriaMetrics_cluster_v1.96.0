@@ -93,7 +93,7 @@ type Storage struct {
 	maxDiskSpaceUsageBytes int64
 
 	// flushInterval is the interval for flushing in-memory data to disk
-	flushInterval time.Duration
+	flushInterval time.Duration  // 定期把数据刷入磁盘
 
 	// futureRetention is the maximum allowed interval to write data into the future
 	futureRetention time.Duration
@@ -195,7 +195,7 @@ func (ptw *partitionWrapper) decRef() {
 func (ptw *partitionWrapper) canAddAllRows(lr *LogRows) bool {
 	minTimestamp := ptw.day * nsecsPerDay
 	maxTimestamp := minTimestamp + nsecsPerDay - 1
-	for _, ts := range lr.timestamps {
+	for _, ts := range lr.timestamps {  // todo: 可以使用 simd 优化
 		if ts < minTimestamp || ts > maxTimestamp {
 			return false
 		}
@@ -217,7 +217,7 @@ func mustCreateStorage(path string) {
 func MustOpenStorage(path string, cfg *StorageConfig) *Storage {
 	flushInterval := cfg.FlushInterval
 	if flushInterval < time.Second {
-		flushInterval = time.Second
+		flushInterval = time.Second  // 最少只能 1 秒
 	}
 
 	retention := cfg.Retention
@@ -242,8 +242,8 @@ func MustOpenStorage(path string, cfg *StorageConfig) *Storage {
 	flockF := fs.MustCreateFlockFile(path)
 
 	// Load caches
-	streamIDCache := newCache()
-	filterStreamCache := newCache()
+	streamIDCache := newCache()  // 最多保存 6 分钟的数据  // streamID 是否存在
+	filterStreamCache := newCache()  // 查询缓存  表达式 -> streamID list
 
 	s := &Storage{
 		path:                   path,
@@ -288,7 +288,7 @@ func MustOpenStorage(path string, cfg *StorageConfig) *Storage {
 			day := t.UTC().UnixNano() / nsecsPerDay
 
 			partitionPath := filepath.Join(partitionsPath, fname)
-			pt := mustOpenPartition(s, partitionPath)
+			pt := mustOpenPartition(s, partitionPath)  // 并行打开分区 // 一般一天一个分区
 			ptws[idx] = newPartitionWrapper(pt, day)
 		}(i)
 	}
@@ -318,10 +318,10 @@ func MustOpenStorage(path string, cfg *StorageConfig) *Storage {
 	ptws = ptws[:j]
 
 	s.partitions = ptws
-	s.runRetentionWatcher()
-	s.runMaxDiskSpaceUsageWatcher()
+	s.runRetentionWatcher()  // 用协程，检查天的切换
+	s.runMaxDiskSpaceUsageWatcher()  // 用协程，检查剩余磁盘空间
 	return s
-}
+}  // ??? 用于 merge 的协程在哪里创建的
 
 const partitionNameFormat = "20060102"
 
@@ -344,7 +344,7 @@ func (s *Storage) runMaxDiskSpaceUsageWatcher() {
 	}()
 }
 
-func (s *Storage) watchRetention() {
+func (s *Storage) watchRetention() {  // 检查天的切换
 	d := timeutil.AddJitterToDuration(time.Hour)
 	ticker := time.NewTicker(d)
 	defer ticker.Stop()
@@ -491,11 +491,11 @@ func (s *Storage) MustClose() {
 // MustForceMerge force-merges parts in s partitions with names starting from the given partitionNamePrefix.
 //
 // Partitions are merged sequentially in order to reduce load on the system.
-func (s *Storage) MustForceMerge(partitionNamePrefix string) {
+func (s *Storage) MustForceMerge(partitionNamePrefix string) {  // merge
 	var ptws []*partitionWrapper
 
 	s.partitionsLock.Lock()
-	for _, ptw := range s.partitions {
+	for _, ptw := range s.partitions {  // 找到需要合并的分区
 		if strings.HasPrefix(ptw.pt.name, partitionNamePrefix) {
 			ptw.incRef()
 			ptws = append(ptws, ptw)
@@ -509,7 +509,7 @@ func (s *Storage) MustForceMerge(partitionNamePrefix string) {
 	for _, ptw := range ptws {
 		logger.Infof("started force merge for partition %s", ptw.pt.name)
 		startTime := time.Now()
-		ptw.pt.mustForceMerge()
+		ptw.pt.mustForceMerge()  // 每个分区上逐个调用 merge 方法
 		ptw.decRef()
 		logger.Infof("finished force merge for partition %s in %.3fs", ptw.pt.name, time.Since(startTime).Seconds())
 	}
@@ -525,7 +525,7 @@ func (s *Storage) MustForceMerge(partitionNamePrefix string) {
 func (s *Storage) MustAddRows(lr *LogRows) {
 	// Fast path - try adding all the rows to the hot partition
 	s.partitionsLock.Lock()
-	ptwHot := s.ptwHot
+	ptwHot := s.ptwHot  // 找到热分区  // 热分区是怎么来的???
 	if ptwHot != nil {
 		ptwHot.incRef()
 	}
