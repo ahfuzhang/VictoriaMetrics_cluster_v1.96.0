@@ -262,7 +262,7 @@ func getCommonParams(r *http.Request, expectedProtocolVersion string) (*commonPa
 	}
 
 	timestamp, err := getInt64FromRequest(r, "timestamp")
-	if err != nil {
+	if err != nil {  // 必须提供 timestamp， 否则会报错
 		return nil, err
 	}
 
@@ -308,7 +308,7 @@ func writeValuesWithHits(w http.ResponseWriter, vhs []logstorage.ValueWithHits, 
 
 func getInt64FromRequest(r *http.Request, argName string) (int64, error) {
 	s := r.FormValue(argName)
-	n, err := strconv.ParseInt(s, 10, 64)
+	n, err := strconv.ParseInt(s, 10, 64)  // 空字符串会报错的
 	if err != nil {
 		return 0, fmt.Errorf("cannot parse %s=%q: %w", argName, s, err)
 	}

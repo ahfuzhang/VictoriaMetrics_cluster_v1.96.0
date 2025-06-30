@@ -1172,6 +1172,7 @@ func (q *Query) HasGlobalTimeFilter() bool {
 //
 // E.g. _time:duration filters are adjusted according to the provided timestamp as _time:[timestamp-duration, duration].
 func ParseQueryAtTimestamp(s string, timestamp int64) (*Query, error) {
+	// 解析查询表达式
 	lex := newLexer(s, timestamp)
 
 	q, err := parseQuery(lex)

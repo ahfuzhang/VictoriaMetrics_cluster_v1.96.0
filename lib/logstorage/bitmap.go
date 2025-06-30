@@ -44,7 +44,7 @@ func (bm *bitmap) copyFrom(src *bitmap) {
 	bm.bitsLen = src.bitsLen
 }
 
-func (bm *bitmap) init(bitsLen int) {
+func (bm *bitmap) init(bitsLen int) {  // 预留 n 个 bit
 	bm.reset()
 	bm.resizeNoInit(bitsLen)
 }

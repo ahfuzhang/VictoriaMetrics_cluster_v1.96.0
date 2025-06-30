@@ -40,7 +40,7 @@ type genericSearchOptions struct {
 	fieldsFilter *prefixfilter.Filter
 }
 
-type searchOptions struct {
+type searchOptions struct {  // 搜索选项
 	// Optional sorted list of tenantIDs for the search.
 	// If it is empty, then the search is performed by streamIDs
 	tenantIDs []TenantID
@@ -56,7 +56,7 @@ type searchOptions struct {
 	maxTimestamp int64
 
 	// filter is the filter to use for the search
-	filter filter
+	filter filter  // 过滤器的接口
 
 	// fieldsFilter is the filter of fields to return in the result
 	fieldsFilter *prefixfilter.Filter

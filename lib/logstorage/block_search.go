@@ -48,6 +48,7 @@ func getBlockSearchWorkBatch() *blockSearchWorkBatch {
 	v := blockSearchWorkBatchPool.Get()
 	if v == nil {
 		return &blockSearchWorkBatch{
+			// ??? 并发度为 64 吗?
 			bsws: make([]blockSearchWork, 0, blockSearchWorksPerBatch),
 		}
 	}
@@ -95,7 +96,7 @@ func putBlockSearch(bs *blockSearch) {
 
 var blockSearchPool sync.Pool
 
-type blockSearch struct {
+type blockSearch struct {  // 在 block 上搜索
 	// bsw is the actual work to perform on the given block pointed by bsw.ph
 	bsw *blockSearchWork
 
@@ -106,7 +107,7 @@ type blockSearch struct {
 	timestampsCache *encoding.Int64s
 
 	// bloomFilterCache contains cached bloom filters for requested columns in the given block
-	bloomFilterCache map[string]*bloomFilter
+	bloomFilterCache map[string]*bloomFilter  // key 是什么?
 
 	// valuesCache contains cached values for requested columns in the given block
 	valuesCache map[string]*stringBucket
@@ -210,11 +211,12 @@ func (bs *blockSearch) search(bsw *blockSearchWork, bm *bitmap) {
 	bs.bsw = bsw
 
 	// search rows matching the given filter
-	bm.init(int(bsw.bh.rowsCount))
-	bm.setBits()
-	bs.bsw.so.filter.applyToBlockSearch(bs, bm)
+	// bitmap 代表了第 n 行有数据
+	bm.init(int(bsw.bh.rowsCount))  // 有 n 个 bit 就预留对应的空间
+	bm.setBits()  // 默认都是 1
+	bs.bsw.so.filter.applyToBlockSearch(bs, bm)  // 执行过滤器
 
-	if bm.isZero() {
+	if bm.isZero() {  // 是否全部为 0
 		// The filter doesn't match any logs in the current block.
 		return
 	}
