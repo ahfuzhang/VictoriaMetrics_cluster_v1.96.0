@@ -241,6 +241,9 @@ func (lr *LogRows) ForEachRow(callback func(streamHash uint64, r *InsertRow)) {
 
 		callback(streamHash, r) // 群集版， vlinsert 只能做镜像复制吗？
 	}
+	// remove reference to logRows fields
+	// since reset of r can modify actual LogRows
+	r.Fields = nil
 	PutInsertRow(r)
 }
 
