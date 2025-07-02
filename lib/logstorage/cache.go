@@ -38,13 +38,14 @@ func (c *cache) MustStop() {
 }
 
 func (c *cache) runCleaner() { // 在协程内定期清理
+	// 猜测，抖动是为了避免所有节点同时一瞬间都过期了
 	d := timeutil.AddJitterToDuration(3 * time.Minute) // 产生一个 3 分钟左右的随机间隔
 	t := time.NewTicker(d)
 	defer t.Stop()
 	for {
 		select {
 		case <-t.C:
-			c.clean() // 三分钟清理一次
+			c.clean() // 三分钟清理一次.
 		case <-c.stopCh:
 			return
 		}
@@ -54,7 +55,7 @@ func (c *cache) runCleaner() { // 在协程内定期清理
 func (c *cache) clean() { // 3 分钟清理一次
 	curr := c.curr.Load()
 	c.prev.Store(curr)
-	c.curr.Store(&sync.Map{}) // 为什么 3 分钟就要丢弃一次索引?
+	c.curr.Store(&sync.Map{}) // 为什么 3 分钟就要丢弃一次索引?  如果缓存太长，就会导致新出现的 stream id 无法被搜索到
 }
 
 func (c *cache) Get(k []byte) (any, bool) {

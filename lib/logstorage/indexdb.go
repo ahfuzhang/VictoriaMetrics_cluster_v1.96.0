@@ -181,6 +181,7 @@ func (idb *indexdb) putIndexSearch(is *indexSearch) {
 // searchStreamIDs returns streamIDs for the given tenantIDs and the given stream filters
 func (idb *indexdb) searchStreamIDs(tenantIDs []TenantID, sf *StreamFilter) []streamID {
 	// Try obtaining streamIDs from cache
+	// 可以预见缓存的时间不能太久，否则新出现的 stream 就会查询不出来
 	streamIDs, ok := idb.loadStreamIDsFromCache(tenantIDs, sf)
 	if ok {
 		// Fast path - streamIDs found in the cache.
@@ -306,13 +307,15 @@ func (is *indexSearch) getStreamIDsForTagFilter(tenantID TenantID, tf *streamTag
 	}
 }
 
+// 前缀搜索
+// 然后使用火山模型来遍历
 func (is *indexSearch) getStreamIDsForNonEmptyTagValue(tenantID TenantID, tagName, tagValue string) map[u128]struct{} {
 	ids := make(map[u128]struct{})
 	var sp tagToStreamIDsRowParser
 
 	ts := &is.ts
 	kb := &is.kb
-	kb.B = marshalCommonPrefix(kb.B[:0], nsPrefixTagToStreamIDs, tenantID)
+	kb.B = marshalCommonPrefix(kb.B[:0], nsPrefixTagToStreamIDs, tenantID)  // 索引 2 上搜索，(tenantID:name:value => streamIDs)
 	kb.B = marshalTagValue(kb.B, bytesutil.ToUnsafeBytes(tagName))
 	kb.B = marshalTagValue(kb.B, bytesutil.ToUnsafeBytes(tagValue))
 	prefix := kb.B

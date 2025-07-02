@@ -1198,14 +1198,14 @@ func ParseQueryAtTimestamp(s string, timestamp int64) (*Query, error) {
 	// 解析查询表达式
 	lex := newLexer(s, timestamp)
 
-	q, err := parseQuery(lex)
+	q, err := parseQuery(lex)  // 解析查询表达式
 	if err != nil {
 		return nil, err
 	}
 	if !lex.isEnd() {
 		return nil, fmt.Errorf("unexpected unparsed tail after [%s]; context: [%s]; tail: [%s]", q, lex.context(), lex.s)
 	}
-	q.optimize()
+	q.optimize()  // 表达式优化
 
 	start, end := q.GetFilterTimeRange()
 	if start != math.MinInt64 && end != math.MaxInt64 {

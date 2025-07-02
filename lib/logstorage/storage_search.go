@@ -106,14 +106,15 @@ func (s *Storage) RunQuery(ctx context.Context, tenantIDs []TenantID, q *Query, 
 // runQueryFunc must run the given q and pass query results to writeBlock
 type runQueryFunc func(ctx context.Context, tenantIDs []TenantID, q *Query, writeBlock writeBlockResultFunc) error
 
+// 根据表达式执行查询
 func (s *Storage) runQuery(ctx context.Context, tenantIDs []TenantID, q *Query, writeBlock writeBlockResultFunc) error {
-	qNew, err := initSubqueries(ctx, tenantIDs, q, s.runQuery, true)
+	qNew, err := initSubqueries(ctx, tenantIDs, q, s.runQuery, true)  // 猜测是运行子查询
 	if err != nil {
 		return err
 	}
 	q = qNew
 
-	streamIDs := q.getStreamIDs()
+	streamIDs := q.getStreamIDs()  // 猜测是要找出与查询相关的所有的 stream id
 	sort.Slice(streamIDs, func(i, j int) bool {
 		return streamIDs[i].less(&streamIDs[j])
 	})
@@ -123,15 +124,15 @@ func (s *Storage) runQuery(ctx context.Context, tenantIDs []TenantID, q *Query, 
 
 	so := &genericSearchOptions{
 		tenantIDs:    tenantIDs,
-		streamIDs:    streamIDs,
+		streamIDs:    streamIDs,  // 猜测只是带在查询表达式中的 stream id， 这个时候还没有真正搜索
 		minTimestamp: minTimestamp,
 		maxTimestamp: maxTimestamp,
 		filter:       q.f,
 		fieldsFilter: fieldsFilter,
 	}
 
-	workersCount := q.GetConcurrency()  // 限制查询并发数
-
+	workersCount := q.GetConcurrency()  // 限制查询并发数. 默认情况，并发数与核数相关
+	// ??? 读让位于写，是怎么做到的？？？
 	search := func(stopCh <-chan struct{}, writeBlockToPipes writeBlockResultFunc) error {
 		s.search(workersCount, so, stopCh, writeBlockToPipes)
 		return nil
@@ -184,6 +185,7 @@ func runPipes(ctx context.Context, pipes []pipe, search searchFunc, writeBlock w
 }
 
 // GetFieldNames returns field names from q results for the given tenantIDs.
+// 根据查询表达式，查询出对应的 tag name
 func (s *Storage) GetFieldNames(ctx context.Context, tenantIDs []TenantID, q *Query) ([]ValueWithHits, error) {
 	pipes := append([]pipe{}, q.pipes...)
 	pipeStr := "field_names"
@@ -488,9 +490,11 @@ func (s *Storage) GetStreamIDs(ctx context.Context, tenantIDs []TenantID, q *Que
 	return s.GetFieldValues(ctx, tenantIDs, q, "_stream_id", limit)
 }
 
+// 根据 tag name 来查询
 func (s *Storage) runValuesWithHitsQuery(ctx context.Context, tenantIDs []TenantID, q *Query) ([]ValueWithHits, error) {
 	var results []ValueWithHits
 	var resultsLock sync.Mutex
+	// 定义了一个用于输出的函数
 	writeBlockResult := func(_ uint, br *blockResult) {
 		if br.rowsLen == 0 {
 			return
@@ -1030,19 +1034,21 @@ func (db *DataBlock) initFromBlockResult(br *blockResult) {
 
 // search searches for the matching rows according to so.
 //
-// It calls writeBlock for each matching block.
+// It calls writeBlock for each matching block.  // 重要的执行查询的函数
+// @param workersCount 一般等于 cpu 的个数
 func (s *Storage) search(workersCount int, so *genericSearchOptions, stopCh <-chan struct{}, writeBlock writeBlockResultFunc) {
 	// Spin up workers
 	var wgWorkers sync.WaitGroup
 	workCh := make(chan *blockSearchWorkBatch, workersCount)
 	wgWorkers.Add(workersCount)
-	for i := 0; i < workersCount; i++ {
+	// ??? 如果很多查询并行，如何做到全局限制并发???
+	for i := 0; i < workersCount; i++ {  // 创建与 cpu 个数相等的协程
 		go func(workerID uint) {
 			bs := getBlockSearch()
-			bm := getBitmap(0)
-			for bswb := range workCh {
+			bm := getBitmap(0)  // 用于标记需要的行
+			for bswb := range workCh {  // 从 channel 消费，所以创建的是消费者协程
 				bsws := bswb.bsws
-				for i := range bsws {
+				for i := range bsws {  // bsws 一般有 16 个 block
 					bsw := &bsws[i]
 					if needStop(stopCh) {
 						// The search has been canceled. Just skip all the scheduled work in order to save CPU time.
@@ -1080,7 +1086,7 @@ func (s *Storage) search(workersCount int, so *genericSearchOptions, stopCh <-ch
 	ptws = ptws[:n]
 
 	// Copy the selected partitions, so they don't interfere with s.partitions.
-	ptws = append([]*partitionWrapper{}, ptws...)
+	ptws = append([]*partitionWrapper{}, ptws...)  // 根据查询的时间范围，定位所有相关的数据分区
 
 	for _, ptw := range ptws {
 		ptw.incRef()
@@ -1094,28 +1100,29 @@ func (s *Storage) search(workersCount int, so *genericSearchOptions, stopCh <-ch
 	psfs := make([]partitionSearchFinalizer, len(ptws))
 	var wgSearchers sync.WaitGroup
 	for i, ptw := range ptws {
+		// partitionSearchConcurrencyLimitCh 是全局的分区搜索并发限制器。 n 个核最多允许 n 个并发
 		partitionSearchConcurrencyLimitCh <- struct{}{}
 		wgSearchers.Add(1)
-		go func(idx int, pt *partition) {
+		go func(idx int, pt *partition) {  // 每天的 partition，创建一个对应的协程
 			psfs[idx] = pt.search(sf, f, so, workCh, stopCh)
 			wgSearchers.Done()
 			<-partitionSearchConcurrencyLimitCh
 		}(i, ptw.pt)
 	}
-	wgSearchers.Wait()
+	wgSearchers.Wait()  // 等待分区上的搜索结束
 
 	// Wait until workers finish their work
 	close(workCh)
-	wgWorkers.Wait()
+	wgWorkers.Wait()  // 等待所有的消费者结束
 
 	// Finalize partition search
 	for _, psf := range psfs {
-		psf()
+		psf()  // 调用终止函数
 	}
 
 	// Decrement references to partitions
 	for _, ptw := range ptws {
-		ptw.decRef()
+		ptw.decRef()  // 减少引用计数
 	}
 }
 
@@ -1126,6 +1133,9 @@ var partitionSearchConcurrencyLimitCh = make(chan struct{}, cgroup.AvailableCPUs
 
 type partitionSearchFinalizer func()
 
+// 分区上的搜索函数
+// @param workCh 生产者 channel，要把查到的数据写入到这个 channel
+// @return 返回一个用于终止的函数
 func (pt *partition) search(sf *StreamFilter, f filter, so *genericSearchOptions, workCh chan<- *blockSearchWorkBatch, stopCh <-chan struct{}) partitionSearchFinalizer {
 	if needStop(stopCh) {
 		// Do not spend CPU time on search, since it is already stopped.
@@ -1135,7 +1145,7 @@ func (pt *partition) search(sf *StreamFilter, f filter, so *genericSearchOptions
 	tenantIDs := so.tenantIDs
 	var streamIDs []streamID
 	if sf != nil {
-		streamIDs = pt.idb.searchStreamIDs(tenantIDs, sf)
+		streamIDs = pt.idb.searchStreamIDs(tenantIDs, sf)  // 在索引上搜索相关的 stream id
 		if len(so.streamIDs) > 0 {
 			streamIDs = intersectStreamIDs(streamIDs, so.streamIDs)
 		}
@@ -1220,6 +1230,7 @@ func initStreamFilters(tenantIDs []TenantID, idb *indexdb, f filter) filter {
 func (ddb *datadb) search(so *searchOptions, workCh chan<- *blockSearchWorkBatch, stopCh <-chan struct{}) partitionSearchFinalizer {
 	// Select parts with data for the given time range
 	ddb.partsLock.Lock()
+	// 根据时间范围，把内存 part, 大 part, 小 part 都放进去搜索
 	pws := appendPartsInTimeRange(nil, ddb.bigParts, so.minTimestamp, so.maxTimestamp)
 	pws = appendPartsInTimeRange(pws, ddb.smallParts, so.minTimestamp, so.maxTimestamp)
 	pws = appendPartsInTimeRange(pws, ddb.inmemoryParts, so.minTimestamp, so.maxTimestamp)
@@ -1227,7 +1238,7 @@ func (ddb *datadb) search(so *searchOptions, workCh chan<- *blockSearchWorkBatch
 	// Increase references to the searched parts, so they aren't deleted during search.
 	// References to the searched parts must be decremented by calling the returned partitionSearchFinalizer.
 	for _, pw := range pws {
-		pw.incRef()
+		pw.incRef()  // 对 part 增加引用计数
 	}
 	ddb.partsLock.Unlock()
 
@@ -1237,6 +1248,9 @@ func (ddb *datadb) search(so *searchOptions, workCh chan<- *blockSearchWorkBatch
 	}
 
 	return func() {
+		// 这里不能直接减少引用计数
+		// 因为消费者协程可能还在读 part 上的 block 数据
+		// 要等消费者协程完成后，再减少引用计数
 		for _, pw := range pws {
 			pw.decRef()
 		}
@@ -1387,14 +1401,19 @@ func (p *part) searchByStreamIDs(so *searchOptions, bhss *blockHeaders, workCh c
 	streamIDs := so.streamIDs
 
 	bswb := getBlockSearchWorkBatch()
+	// 猜测是定义消费者函数
 	scheduleBlockSearch := func(bh *blockHeader) bool {
-		if bswb.appendBlockSearchWork(p, so, bh) {
+		if bswb.appendBlockSearchWork(p, so, bh) {  // 凑够 64 个 block，往消费者 channel 发一波。
 			return true
 		}
 		select {
 		case <-stopCh:
 			return false
 		case workCh <- bswb:
+			/*
+			  每一天，只有一个协程，用于搜索符合条件的 block
+			  但是，有很多个消费者协程，负责具体的 block 的载入
+			*/
 			bswb = getBlockSearchWorkBatch()
 			return true
 		}
@@ -1456,7 +1475,8 @@ func (p *part) searchByStreamIDs(so *searchOptions, bhss *blockHeaders, workCh c
 				if so.minTimestamp > th.maxTimestamp || so.maxTimestamp < th.minTimestamp {
 					continue
 				}
-				if !scheduleBlockSearch(bh) {
+				// 找到 block 后，放入生产者 channel，等着消费者协程来处理
+				if !scheduleBlockSearch(bh) {  // 找到了 block
 					return
 				}
 			}

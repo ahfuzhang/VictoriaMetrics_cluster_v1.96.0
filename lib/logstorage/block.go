@@ -499,6 +499,8 @@ func (b *block) Len() int {
 	return len(b.timestamps) // block 中的记录数
 }
 
+// 从磁盘加载 block 数据到内存。
+// merge 流程中需要做这一步
 // InitFromBlockData unmarshals bd to b.
 //
 // sbu and vd are used as a temporary storage for unmarshaled column values.
@@ -515,6 +517,7 @@ func (b *block) InitFromBlockData(bd *blockData, sbu *stringsBlockUnmarshaler, v
 	// unmarshal timestamps
 	td := &bd.timestampsData
 	var err error
+	// 反序列化 timestamp 数据
 	b.timestamps, err = encoding.UnmarshalTimestamps(b.timestamps[:0], td.data, td.marshalType, td.minTimestamp, rowsCount)
 	if err != nil {
 		return fmt.Errorf("cannot unmarshal timestamps: %w", err)
@@ -523,10 +526,10 @@ func (b *block) InitFromBlockData(bd *blockData, sbu *stringsBlockUnmarshaler, v
 	// unmarshal columns
 	cds := bd.columnsData
 	cs := b.resizeColumns(len(cds))
-	for i := range cds {
+	for i := range cds {  // 解析每一列
 		cd := &cds[i]
 		c := &cs[i]
-		c.name = sbu.copyString(cd.name)
+		c.name = sbu.copyString(cd.name)  // arena 的分配模式
 		c.values, err = sbu.unmarshal(c.values[:0], cd.valuesData, uint64(rowsCount))
 		if err != nil {
 			return fmt.Errorf("cannot unmarshal column %d: %w", i, err)

@@ -87,7 +87,7 @@ func (sbu *stringsBlockUnmarshaler) unmarshal(dst []string, src []byte, itemsCou
 	// Decode string lengths
 	var tail []byte
 	var err error
-	u64s.A, tail, err = unmarshalUint64Block(u64s.A[:0], src, itemsCount)
+	u64s.A, tail, err = unmarshalUint64Block(u64s.A[:0], src, itemsCount)  // 所有字符串的长度
 	if err != nil {
 		return dst, fmt.Errorf("cannot unmarshal string lengths: %w", err)
 	}

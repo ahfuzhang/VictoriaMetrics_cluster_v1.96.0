@@ -183,7 +183,7 @@ func UnmarshalVarInt64s(dst []int64, src []byte) ([]byte, error) {
 	if len(src) < len(dst) {
 		return src, fmt.Errorf("too small len(src)=%d; it must be bigger or equal to len(dst)=%d", len(src), len(dst))
 	}
-	for i := range dst {
+	for i := range dst { // todo: 写得好复杂，应该可以优化
 		c := src[i]
 		if c >= 0x80 {
 			return unmarshalVarInt64sSlow(dst, src)

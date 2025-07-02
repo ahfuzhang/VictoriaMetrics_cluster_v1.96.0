@@ -56,7 +56,7 @@ func ResizeNoCopyNoOverallocate(b []byte, n int) []byte {
 //
 // It is expected that n > 0
 func roundToNearestPow2(n int) int {
-	pow2 := uint8(bits.Len(uint(n - 1)))
+	pow2 := uint8(bits.Len(uint(n - 1)))  // bits.Len() 返回最高位 1 的位置
 	return 1 << pow2
 }
 

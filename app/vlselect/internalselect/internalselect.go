@@ -139,7 +139,7 @@ func processFieldNamesRequest(ctx context.Context, w http.ResponseWriter, r *htt
 	if err != nil {
 		return err
 	}
-
+	// cp 中包含 Query 对象
 	fieldNames, err := vlstorage.GetFieldNames(ctx, cp.TenantIDs, cp.Query)
 	if err != nil {
 		return fmt.Errorf("cannot obtain field names: %w", err)
@@ -267,7 +267,8 @@ func getCommonParams(r *http.Request, expectedProtocolVersion string) (*commonPa
 	}
 
 	qStr := r.FormValue("query")
-	q, err := logstorage.ParseQueryAtTimestamp(qStr, timestamp)
+	// 这里很复杂，读起来很困难
+	q, err := logstorage.ParseQueryAtTimestamp(qStr, timestamp)  // q 是解析后的表达式对象
 	if err != nil {
 		return nil, fmt.Errorf("cannot unmarshal query=%q: %w", qStr, err)
 	}
@@ -280,13 +281,14 @@ func getCommonParams(r *http.Request, expectedProtocolVersion string) (*commonPa
 
 	cp := &commonParams{
 		TenantIDs: tenantIDs,
-		Query:     q,
+		Query:     q,  // 表达式对象，包含起止时间
 
 		DisableCompression: disableCompression,
 	}
 	return cp, nil
 }
 
+// 输出找到的 values
 func writeValuesWithHits(w http.ResponseWriter, vhs []logstorage.ValueWithHits, disableCompression bool) error {
 	var b []byte
 	for i := range vhs {

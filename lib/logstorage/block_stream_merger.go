@@ -220,7 +220,7 @@ func (bsm *blockStreamMerger) ReadersPaths() string {
 }
 
 // mustMergeRows merges the current log entries inside bsm with bd log entries.
-func (bsm *blockStreamMerger) mustMergeRows(bd *blockData) {
+func (bsm *blockStreamMerger) mustMergeRows(bd *blockData) {  // 猜测是 merge 两个 block
 	if bsm.bd.rowsCount > 0 {
 		// Unmarshal log entries from bsm.bd
 		bsm.mustUnmarshalRows(&bsm.bd)

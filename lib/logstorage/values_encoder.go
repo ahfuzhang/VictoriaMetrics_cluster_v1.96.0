@@ -94,6 +94,8 @@ type valuesEncoder struct {
 
 	// values contains encoded values.
 	values []string
+
+	// todo: 这里值得做 value 是否重复的优化
 }
 
 func (ve *valuesEncoder) reset() {

@@ -7,7 +7,7 @@ import (
 // LessNatural returns true if a is less than b using natural sort comparison.
 //
 // See https://en.wikipedia.org/wiki/Natural_sort_order
-func LessNatural(a, b string) bool {
+func LessNatural(a, b string) bool {  // todo: 这个算法看起来值得被优化
 	isReverse := false
 	for {
 		if len(a) > len(b) {

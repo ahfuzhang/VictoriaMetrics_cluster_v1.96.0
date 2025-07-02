@@ -205,7 +205,7 @@ func (bs *blockSearch) partPath() string {
 	return bs.bsw.p.path
 }
 
-func (bs *blockSearch) search(bsw *blockSearchWork, bm *bitmap) {
+func (bs *blockSearch) search(bsw *blockSearchWork, bm *bitmap) {  // block 内搜索
 	bs.reset()
 
 	bs.bsw = bsw

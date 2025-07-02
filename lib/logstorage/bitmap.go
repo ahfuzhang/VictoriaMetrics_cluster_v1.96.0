@@ -105,7 +105,7 @@ func (bm *bitmap) andNot(x *bitmap) {
 	}
 	a := bm.a
 	b := x.a
-	for i := range a {
+	for i := range a {  // todo: simd
 		a[i] &= ^b[i]
 	}
 }
